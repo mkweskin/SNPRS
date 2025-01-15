@@ -1,10 +1,12 @@
 // Subworkflow for generating SNPRS Pangenome
 pangenome_directory = file(params.pangenome_directory)
 new_pangenome_directory = file("${pangenome_directory}/${params.pg_name}")
+pangenome_conf_file = file("${new_pangenome_directory}/Ray.conf")
 pangenome_subset_directory = file("${new_pangenome_directory}/Subset_Reads")
 
 cpu = params.cores as Integer
 node = params.nodes as Integer
+ray_kmer = params.ray_kmer as Integer
 ray_cores = cpu * node
 
 workflow makePangenome{
@@ -40,6 +42,7 @@ workflow makePangenome{
         | subsetReads
         | collect
         | assemblePangenome
+        | processPangenome
 }
 
 process fetchPGReads{
@@ -142,19 +145,21 @@ process subsetReads{
             "reformat.sh in=${forward_reverse[0]} in2=${forward_reverse[1]} out=${pangenome_subset_directory}/${sample_name}_GenomeReads_1.fq.gz out2=${pangenome_subset_directory}/${sample_name}_GenomeReads_2.fq.gz samplebasestarget=${subset_count} &> ${pangenome_subset_directory}/out_Subsample_${sample_name}" :
             "reformat.sh in=${forward_reverse[0]} out=${pangenome_subset_directory}/${sample_name}_GenomeReads.fq.gz samplebasestarget=${subset_count} &> ${pangenome_subset_directory}/out_Subsample_${sample_name}"
         def subset_count = subset_count.toInteger()
+        def echo_command = read_location.contains(";") ? "-p ${pangenome_subset_directory}/${sample_name}_GenomeReads_1.fq.gz ${pangenome_subset_directory}/${sample_name}_GenomeReads_2.fq.gz" : "-s ${pangenome_subset_directory}/${sample_name}_GenomeReads.fq.gz"
             
         """
         $reformat_cmd
         read_count_line=\$(cat ${pangenome_subset_directory}/out_Subsample_${sample_name} | grep "Output:")
         read_count=\$(echo "\$read_count_line" | awk '{print \$2}')
         base_count=\$(echo "\$read_count_line" | awk '{print \$5}')
-        echo "${sample_name},\$read_count,\$base_count"
+        echo -n $echo_command
         """
 }
 
 process assemblePangenome{
 
-    clusterOptions = "--nodes=${node} --ntasks-per-node=${cpu}"
+    //clusterOptions = "--nodes=${node} --ntasks-per-node=${cpu}"
+    executor = 'local'
 
     input:
     val(subset_reads)
@@ -164,15 +169,44 @@ process assemblePangenome{
 
     script:
 
+    subset_read_locs = subset_reads.join("\n")
+
     """
-    echo "Contents of \$(pwd):"
-    ls -lh
-    echo "Contents of ${pangenome_subset_directory}:"
-    ls -lh ${pangenome_subset_directory}
-    mpirun -v -np ${ray_cores} Ray -k 31 -detect-sequence-files ${pangenome_subset_directory} -o ${new_pangenome_directory}/Ray_${params.pg_name}
+    echo "-k ${ray_kmer}" > ${pangenome_conf_file} &&
+    echo "-o ${new_pangenome_directory}/Ray_${params.pg_name}" >> ${pangenome_conf_file} &&
+    echo -e "${subset_read_locs}" >> ${pangenome_conf_file}
+    # mpirun -np ${ray_cores} Ray ${pangenome_conf_file} &> ${new_pangenome_directory}/out_Ray_${params.pg_name}
+    echo -n "/flash/storage/scratch/Robert.Literman/NextFlow/SNPRS/Test_Data/Salmonella/Composite_Genome/Ray_1736962135144/Contigs.fasta"
     """
 }
 
+process processPangenome{
+    
+    input:
+    val(contig_file)
+
+    output:
+    stdout
+
+    script:
+
+    genome_script=file("${projectDir}/bin/Genome_SiteLengths.py")
+    processed_pangenome_directory = file("${pangenome_directory}/${params.pg_name}/SNPRS_Pangenome")
+    new_fasta = file("${processed_pangenome_directory}/contigs.fa")
+    log_dir = file("${processed_pangenome_directory}/logs")
+    
+    """
+    mkdir $processed_pangenome_directory &&
+    mkdir $log_dir &&
+    rename.sh in=${contig_file} out=${new_fasta} prefix=SNPRS addprefix=t trd=t &> ${log_dir}/out_Rename &&
+    bowtie2-build ${new_fasta} ${processed_pangenome_directory}/contigs -p $cpu &> ${log_dir}/out_Bowtie2 &&
+    bbmap.sh ref=${new_fasta} path=${processed_pangenome_directory} &> ${log_dir}/out_BBMap &&
+    samtools faidx ${new_fasta} &> ${log_dir}/out_Samtools &&
+    python $genome_script $processed_pangenome_directory &> ${log_dir}/out_Genome_SiteLengths &&
+    stats.sh in=${new_fasta} &> ${processed_pangenome_directory}/BBStats &&
+    echo -n $processed_pangenome_directory
+    """
+}
 
 
 
@@ -205,6 +239,5 @@ workflow fetchPangenome{
 
     main:
     
-    print("Fetching pangenome...")
     pangenome_info = "Temp"
 }

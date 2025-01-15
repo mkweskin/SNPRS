@@ -11,7 +11,8 @@ dependencies:
   - mash
   - bowtie2
   - samtools=1.3.1
-  - openmpi=3.1.3
+  - zlib
+  - openmpi=3.1.4
   - ray
   - bbmap
   - pip
