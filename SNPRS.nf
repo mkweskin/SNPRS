@@ -27,6 +27,6 @@ include {makePangenome;fetchPangenome} from "./subworkflows/pangenome/main.nf"
 workflow{
 
     // Get pangenome information
-    pangenome_directory = "${params.pg_reads}" != "" ? makePangenome() : fetchPangenome()
-    pangenome_directory.subscribe{println(it)}
+    pangenome_info = "${params.pg_reads}" != "" ? makePangenome() : fetchPangenome()
+    pangenome_info.subscribe{println(it)}
 }

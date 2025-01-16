@@ -7,6 +7,7 @@ processed_pangenome_directory = file("${base_pangenome_directory}/${pg_name}")
 pangenome_prep_directory = file("${base_pangenome_directory}/Prep_${pg_name}") 
 pangenome_subset_directory = file("${pangenome_prep_directory}/Subset_Reads")
 pangenome_conf_file = file("${pangenome_prep_directory}/Ray.conf")
+
 ray_directory = file("${pangenome_prep_directory}/Ray_${pg_name}")
 ref_path = "${params.ref_path}" == "" ? file("${ray_directory}/Contigs.fasta") : file("${params.ref_path}") // Fix for Ray
 
@@ -15,10 +16,11 @@ node = params.nodes as Integer
 ray_kmer = params.ray_kmer as Integer
 ray_cores = cpu * node
 
+// Make pangenome
 workflow makePangenome{
         
         emit:
-        pagenome_directory
+        pangenome_info
 
         main:
 
@@ -33,7 +35,7 @@ workflow makePangenome{
         | splitCsv
 
         // Generate subsetting values
-        pagenome_directory = input_pangenome_reads.join(pangenome_read_info,by:0)
+        pangenome_info = input_pangenome_reads.join(pangenome_read_info,by:0)
         | map{it -> it.join(",")}
         | collect
         | getSubsetValues
@@ -219,6 +221,8 @@ process processPangenome{
     """
 }
 
+
+// Fetch pangenome or create from FASTA
 workflow fetchPangenome{
 
     emit:
