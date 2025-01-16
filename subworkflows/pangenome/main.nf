@@ -1,8 +1,12 @@
-// Subworkflow for generating SNPRS Pangenome
-pangenome_directory = file(params.pangenome_directory)
-new_pangenome_directory = file("${pangenome_directory}/${params.pg_name}")
-pangenome_conf_file = file("${new_pangenome_directory}/Ray.conf")
-pangenome_subset_directory = file("${new_pangenome_directory}/Subset_Reads")
+// Subworkflow for generating or fetching SNPRS Pangenome
+pg_name = "${params.pg_name}" != "" ? "${params.pg_name}" : "${new java.util.Date().getTime()}"
+
+base_pangenome_directory = file("${params.snprs_directory}/SNPRS_Pangenome")
+processed_pangenome_directory = file("${base_pangenome_directory}/SNPRS_${pg_name}")
+
+pangenome_prep_directory = file("${base_pangenome_directory}/Prep_${pg_name}") 
+pangenome_subset_directory = file("${pangenome_prep_directory}/Subset_Reads")
+pangenome_conf_file = file("${pangenome_prep_directory}/Ray.conf")
 
 cpu = params.cores as Integer
 node = params.nodes as Integer
@@ -11,16 +15,13 @@ ray_cores = cpu * node
 
 workflow makePangenome{
         
-        take:
-        pangenome_read_info
-
         emit:
-        subset_reads
+        pagenome_directory
 
         main:
 
         // Fetch reads and generate pangenome directory
-        input_pangenome_reads = fetchPGReads(pangenome_read_info) 
+        input_pangenome_reads = fetchPGReads(file("${params.pg_reads}")) 
         | splitCsv
 
         // Get read counts and base counts
@@ -30,7 +31,7 @@ workflow makePangenome{
         | splitCsv
 
         // Generate subsetting values
-        subset_reads = input_pangenome_reads.join(pangenome_read_info,by:0)
+        pagenome_directory = input_pangenome_reads.join(pangenome_read_info,by:0)
         | map{it -> it.join(",")}
         | collect
         | getSubsetValues
@@ -52,7 +53,7 @@ process fetchPGReads{
     maxForks = 1
 
     input:
-    val dir // Directory containing read files
+    val read_info
 
     output:
     stdout
@@ -63,14 +64,14 @@ process fetchPGReads{
 
     """
     # Error if new_pangenome_directory exists
-    if [ -d ${new_pangenome_directory} ]; then
+    if [ -d ${pangenome_prep_directory} ]; then
         echo "Pangenome directory already exists...exiting..."
         exit 1
     fi
-    python ${fetchPGScript} --read_dir ${dir} --read_filetype $params.readext --forward_suffix $params.forward --reverse_suffix $params.reverse && 
-    mkdir -p $pangenome_directory &&
-    mkdir $new_pangenome_directory &&
-    mkdir $pangenome_subset_directory
+    mkdir -p $base_pangenome_directory &&
+    mkdir $pangenome_prep_directory &&
+    mkdir $pangenome_subset_directory &&
+    python ${fetchPGScript} --read_dir ${read_info} --read_filetype $params.readext --forward_suffix $params.forward --reverse_suffix $params.reverse
     """
 }
 
@@ -112,7 +113,7 @@ process getSubsetValues{
     stdout
 
     script:
-    pg_info_file = file("${new_pangenome_directory}/Pangenome_Read_Info.csv")
+    pg_info_file = file("${pangenome_prep_directory}/Pangenome_Read_Info.csv")
     read_subset_script = file("${projectDir}/bin/readSubsetter.py")
 
     genome_size = params.pg_size.toInteger()
@@ -168,15 +169,15 @@ process assemblePangenome{
     stdout
 
     script:
-
     subset_read_locs = subset_reads.join("\n")
+    ref_path = file("${params.ref_path}") // Not needed usually
 
     """
     echo "-k ${ray_kmer}" > ${pangenome_conf_file} &&
-    echo "-o ${new_pangenome_directory}/Ray_${params.pg_name}" >> ${pangenome_conf_file} &&
+    echo "-o ${pangenome_prep_directory}/Ray_${params.pg_name}" >> ${pangenome_conf_file} &&
     echo -e "${subset_read_locs}" >> ${pangenome_conf_file}
-    # mpirun -np ${ray_cores} Ray ${pangenome_conf_file} &> ${new_pangenome_directory}/out_Ray_${params.pg_name}
-    echo -n "/flash/storage/scratch/Robert.Literman/NextFlow/SNPRS/Test_Data/Salmonella/Composite_Genome/Ray_1736962135144/Contigs.fasta"
+    # mpirun -np ${ray_cores} Ray ${pangenome_conf_file} &> ${pangenome_prep_directory}/out_Ray_${params.pg_name}
+    echo -n $ref_path
     """
 }
 
@@ -191,7 +192,6 @@ process processPangenome{
     script:
 
     genome_script=file("${projectDir}/bin/Genome_SiteLengths.py")
-    processed_pangenome_directory = file("${pangenome_directory}/${params.pg_name}/SNPRS_Pangenome")
     new_fasta = file("${processed_pangenome_directory}/contigs.fa")
     log_dir = file("${processed_pangenome_directory}/logs")
     

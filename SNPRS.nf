@@ -14,23 +14,19 @@ if(!output_directory.isDirectory()){
     }
 }
 
-pangenome_directory = file("${output_directory}/SNPRS_Pangenomes")
-mapping_directory = file("${output_directory}/Mapping")
+// Temporary while fixing Ray
+if(params.pg_reads != "" && params.ref_path == ""){
+    error "Reference path is required for pangenome generation..."
+}
 
 // Parameterize major paths
 params.snprs_directory = file(output_directory)
-params.pangenome_directory = file(pangenome_directory)
-params.mapping_directory = file(mapping_directory)
 
 include {makePangenome;fetchPangenome} from "./subworkflows/pangenome/main.nf"
 
 workflow{
 
     // Get pangenome information
-    if(params.pg_reads != ""){
-        pangenome = makePangenome(file(params.pg_reads)) // Build a pangenome if reads are provided
-    } else{
-        pangenome = fetchPangenome(params.pg_path,params.pg_name) // Fetch an existing pangenome by ID or path
-    }
-    pangenome.subscribe{println(it)}
+    pangenome_directory = "${params.pg_reads}" != "" ? makePangenome() : fetchPangenome()
+    pangenome_directory.subscribe{println(it)}
 }
