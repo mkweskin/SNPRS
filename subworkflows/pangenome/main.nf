@@ -1,12 +1,14 @@
 // Subworkflow for generating or fetching SNPRS Pangenome
 pg_name = "${params.pg_name}" != "" ? "${params.pg_name}" : "${new java.util.Date().getTime()}"
 
-base_pangenome_directory = file("${params.snprs_directory}/SNPRS_Pangenome")
-processed_pangenome_directory = file("${base_pangenome_directory}/SNPRS_${pg_name}")
+base_pangenome_directory = file("${params.snprs_directory}/SNPRS_Pangenomes")
+processed_pangenome_directory = file("${base_pangenome_directory}/${pg_name}")
 
 pangenome_prep_directory = file("${base_pangenome_directory}/Prep_${pg_name}") 
 pangenome_subset_directory = file("${pangenome_prep_directory}/Subset_Reads")
 pangenome_conf_file = file("${pangenome_prep_directory}/Ray.conf")
+ray_directory = file("${pangenome_prep_directory}/Ray_${pg_name}")
+ref_path = "${params.ref_path}" == "" ? file("${ray_directory}/Contigs.fasta") : file("${params.ref_path}") // Fix for Ray
 
 cpu = params.cores as Integer
 node = params.nodes as Integer
@@ -170,11 +172,10 @@ process assemblePangenome{
 
     script:
     subset_read_locs = subset_reads.join("\n")
-    ref_path = file("${params.ref_path}") // Not needed usually
 
     """
     echo "-k ${ray_kmer}" > ${pangenome_conf_file} &&
-    echo "-o ${pangenome_prep_directory}/Ray_${params.pg_name}" >> ${pangenome_conf_file} &&
+    echo "-o ${ray_directory}" >> ${pangenome_conf_file} &&
     echo -e "${subset_read_locs}" >> ${pangenome_conf_file}
     # mpirun -np ${ray_cores} Ray ${pangenome_conf_file} &> ${pangenome_prep_directory}/out_Ray_${params.pg_name}
     echo -n $ref_path
@@ -196,6 +197,12 @@ process processPangenome{
     log_dir = file("${processed_pangenome_directory}/logs")
     
     """
+    # Error if new_pangenome_directory exists
+    if [ -d ${processed_pangenome_directory} ]; then
+        echo "Pangenome directory already exists...exiting..."
+        exit 1
+    fi
+    mkdir -p $base_pangenome_directory &&
     mkdir $processed_pangenome_directory &&
     mkdir $log_dir &&
     rename.sh in=${contig_file} out=${new_fasta} prefix=SNPRS addprefix=t trd=t &> ${log_dir}/out_Rename &&
@@ -208,36 +215,54 @@ process processPangenome{
     """
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 workflow fetchPangenome{
 
-    take:
+    emit:
     pangenome_directory
 
-    emit:
-    pangenome_info
-
     main:
-    
-    pangenome_info = "Temp"
+
+    if("${params.pg_path}" != ""){
+        pangenome_directory = validatePangenome(file("${params.pg_path}"))
+    }
+    else if("${params.ref_path}" != ""){
+        pangenome_directory = processPangenome(file("${params.ref_path}"))
+    } 
+    else if("${params.pg_name}" != ""){
+        pangenome_directory = validatePangenome(processed_pangenome_directory)
+    }
+    else{
+        error "No pangenome information provided...exiting..."
+    }
+}
+
+process validatePangenome {
+
+    executor = 'local'
+    cpu = 1
+    maxForks = 1
+
+    input:
+    val pangenome_directory
+
+    output:
+    stdout
+
+    script:
+    """
+    files=(
+        'BBStats' 'contigs.1.bt2' 'contigs.2.bt2' 'contigs.3.bt2' 'contigs.4.bt2'
+        'contigs.fa' 'contigs.fa.fai' 'contigs_LocList' 'contigs.rev.1.bt2'
+        'contigs.rev.2.bt2' 'contigs_SeqLength.tsv' 'logs' 'ref'
+    )
+
+    for file in "\${files[@]}"; do
+        if [ ! -e "${pangenome_directory}/\${file}" ]; then
+            echo "Error: \${file} is missing in ${pangenome_directory}" >&2
+            exit 1
+        fi
+    done
+
+    echo -n ${pangenome_directory}
+    """
 }
