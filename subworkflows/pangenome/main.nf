@@ -249,7 +249,6 @@ workflow fetchPangenome{
     | flatten
     | collate(2)
 }
-
 process validatePangenome {
 
     executor = 'local'
