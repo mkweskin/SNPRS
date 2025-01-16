@@ -232,7 +232,7 @@ workflow fetchPangenome{
         pangenome_directory = validatePangenome(processed_pangenome_directory)
     }
     else{
-        error "No pangenome information provided...exiting..."
+        pangenome_directory = ""
     }
 }
 
