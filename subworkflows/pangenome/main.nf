@@ -46,6 +46,10 @@ workflow makePangenome{
         | collect
         | assemblePangenome
         | processPangenome
+        | splitCsv
+        | collect
+        | flatten
+        | collate(2)
 }
 
 process fetchPGReads{
@@ -211,14 +215,14 @@ process processPangenome{
     samtools faidx ${new_fasta} &> ${log_dir}/out_Samtools &&
     python $genome_script $processed_pangenome_directory &> ${log_dir}/out_Genome_SiteLengths &&
     stats.sh in=${new_fasta} &> ${processed_pangenome_directory}/BBStats &&
-    echo -n $processed_pangenome_directory
+    echo -n ${pg_name},${processed_pangenome_directory}
     """
 }
 
 workflow fetchPangenome{
 
     emit:
-    pangenome_directory
+    pangenome_info
 
     main:
 
@@ -232,8 +236,14 @@ workflow fetchPangenome{
         pangenome_directory = validatePangenome(processed_pangenome_directory)
     }
     else{
-        pangenome_directory = ""
+        error "No pangenome information provided...exiting..."
     }
+
+    pangenome_info = pangenome_directory
+    | splitCsv
+    | collect
+    | flatten
+    | collate(2)
 }
 
 process validatePangenome {
@@ -255,14 +265,14 @@ process validatePangenome {
         'contigs.fa' 'contigs.fa.fai' 'contigs_LocList' 'contigs.rev.1.bt2'
         'contigs.rev.2.bt2' 'contigs_SeqLength.tsv' 'logs' 'ref'
     )
-
+    outputdir="${pangenome_directory}"
     for file in "\${files[@]}"; do
         if [ ! -e "${pangenome_directory}/\${file}" ]; then
             echo "Error: \${file} is missing in ${pangenome_directory}" >&2
-            exit 1
+            outputdir=""
         fi
     done
 
-    echo -n ${pangenome_directory}
+    echo -n ${pg_name},\$outputdir
     """
 }
