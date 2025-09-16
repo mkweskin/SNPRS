@@ -367,7 +367,7 @@ process INDEX_FASTA{
     cd ${fasta_dir}
     ${bbmap_cmd}
     ${sam_cmd}
-    echo -n "${fasta_name},${fasta_file}"
+    echo -n "${fasta_basename},${fasta_file}"
     """
 }
 
@@ -434,7 +434,7 @@ workflow indexGenome{
     def fasta_file = file("${fasta_path}")
 
     if(fasta_file.isFile()){
-        pangenome_info = INDEX_FASTA(fasta_file)
+        pangenome_info = INDEX_FASTA(fasta_file) | splitCsv()
     } else{
         error "Assembly provided by --fasta (${fasta_file}) does not exist..."
     }
@@ -452,7 +452,7 @@ workflow checkGenome{
     def genome_dir = file("${genome_path}")
 
     if(genome_dir.isDirectory()){
-        pangenome_info = CHECK_GENOME(genome_dir)
+        pangenome_info = CHECK_GENOME(genome_dir) | splitCsv()
     } else{
         error "Directory ${genome_dir} does not exist..."
     }

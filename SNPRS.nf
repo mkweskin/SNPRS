@@ -136,10 +136,14 @@ workflow{
 
     // Get BAM files
     if(pangenome_info && "${params.map_reads}" != ""){
-        bam_files = mapReads(params.map_reads,pangenome_info)
+        bam_data = mapReads(params.map_reads,pangenome_info,mapping_directory)
     } else if("${params.bam_files}" != ""){
-        bam_files = fetchBAM(params.bam_files)
+        bam_data = fetchBAM(params.bam_files)
+    } else{
+        bam_data = Channel.empty()
     }
+
+    bam_data.view()
 
 
 }
