@@ -373,7 +373,7 @@ process INDEX_FASTA{
 
 process CHECK_GENOME{
 
-    exector = "local"
+    executor = "local"
     cpus 1
 
     input:
@@ -411,7 +411,10 @@ process CHECK_GENOME{
     FASTA_NAME=\$(basename "\${FASTA%.*}")
 
     if [[ ! -d "${bbmap_ref}" ]]; then
-        echo "Error: Directory "${bbmap_ref}" does not exist" >&2
+        echo "Error: Directory ${bbmap_ref} does not exist" >&2
+        exit 1
+    elif [[ ! -f "\$FASTA" ]]; then
+        echo "Error: FAI base file \$FASTA does not exist" >&2
         exit 1
     fi
 
