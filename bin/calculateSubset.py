@@ -315,7 +315,6 @@ merged_df = pd.merge(group_df, base_count_df[['Sample_ID','Forward','Reverse','R
                      on=['Sample_ID','Forward','Reverse'], how='inner')
 
 sample_count = merged_df.shape[0]
-
 if len(merged_df) != len(group_df):
     raise ValueError("Mismatch after merging...")
 

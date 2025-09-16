@@ -1,0 +1,23 @@
+name: snprs_env
+
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.8.1
+  - bedtools
+  - pybedtools
+  - bowtie2
+  - samtools
+  - bbmap
+  - pandas
+  - biopython
+  - scikit-learn
+  - matplotlib
+  - polars-u64-idx
+  - pysam
+  - pyarrow
+  - bcftools
+  - pysam

@@ -332,6 +332,9 @@ process PROCESS_RAY{
     """
     rename.sh in=${ray_assembly} out=${pangenome_file} prefix=SNPRS addprefix=t trd=t
     stats.sh ${pangenome_file} &> ${stats_file}
+    cd ${pangenome_directory}
+    bbmap.sh ref=${pangenome_file}
+    samtools faidx ${pangenome_file}
     echo -n "${pg_name},${pangenome_file}"
     """
 }

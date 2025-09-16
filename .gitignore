@@ -2,7 +2,7 @@ work
 .nextflow*
 Test_Output
 Test_Data
-SNPRS_env
+SNPRS_Env
 bin/250915
 modules/OLD
 subworkflows/OLD
