@@ -313,8 +313,6 @@ process ASSEMBLE_PANGENOME {
 }
 
 process PROCESS_RAY{
-    cpus 1
-    executor = "local"
 
     input:
     val(ray_assembly)
@@ -338,6 +336,125 @@ process PROCESS_RAY{
     echo -n "${pg_name},${pangenome_file}"
     """
 }
+
+process INDEX_FASTA{
+
+    input:
+    val(fasta_path)
+
+    output:
+    stdout
+
+    script:
+    
+    def fasta_file = file("${fasta_path}") 
+    def fasta_dir = fasta_file.getParent()
+    def fasta_name = fasta_file.getName()
+    def fasta_basename = fasta_file.getBaseName()
+    
+    def bbmap_ref = file("${fasta_dir}/ref")
+    def sam_idx = file("${fasta_dir}/${fasta_name}.fai")
+
+    def bbmap_cmd = bbmap_ref.exists()
+    ? ""
+    : "bbmap.sh ref=${fasta_file}"
+
+    def sam_cmd = sam_idx.exists()
+    ? ""
+    : "samtools faidx ${fasta_file}"
+
+    """
+    cd ${fasta_dir}
+    ${bbmap_cmd}
+    ${sam_cmd}
+    echo -n "${fasta_name},${fasta_file}"
+    """
+}
+
+process CHECK_GENOME{
+
+    exector = "local"
+    cpus 1
+
+    input:
+    val(genome_dir)
+
+    output:
+    stdout
+
+    script:
+    
+    def genome_dir = file("${genome_dir}") 
+    def bbmap_ref = file("${genome_dir}/ref")
+
+    """
+    cd ${genome_dir}
+
+    get_fasta_from_fai() {
+        local folder="\$1"
+        local fai_files=("\$folder"/*.fai)
+        if [[ ! -e "\${fai_files[0]}" ]]; then
+            echo "Error: No .fai file found in \$folder" >&2
+            return 1
+        fi
+
+        if (( \${#fai_files[@]} != 1 )); then
+            echo "Error: Expected exactly 1 .fai file in \$folder, found \${#fai_files[@]}" >&2
+            return 1
+        fi
+
+        local fasta="\${fai_files[0]%.fai}"
+        echo -n "\$fasta"
+    }
+
+    FASTA=\$(get_fasta_from_fai "${genome_dir}")
+    FASTA_NAME=\$(basename "\${FASTA%.*}")
+
+    if [[ ! -d "${bbmap_ref}" ]]; then
+        echo "Error: Directory "${bbmap_ref}" does not exist" >&2
+        exit 1
+    fi
+
+    echo -n "\$FASTA_NAME,\$FASTA"
+    """
+}
+
+workflow indexGenome{
+
+    take:
+    fasta_path
+
+    emit:
+    pangenome_info
+
+    main:
+    def fasta_file = file("${fasta_path}")
+
+    if(fasta_file.isFile()){
+        pangenome_info = INDEX_FASTA(fasta_file)
+    } else{
+        error "Assembly provided by --fasta (${fasta_file}) does not exist..."
+    }
+}
+
+workflow checkGenome{
+
+    take:
+    genome_path
+
+    emit:
+    pangenome_info
+
+    main:
+    def genome_dir = file("${genome_path}")
+
+    if(genome_dir.isDirectory()){
+        pangenome_info = CHECK_GENOME(genome_dir)
+    } else{
+        error "Directory ${genome_dir} does not exist..."
+    }
+}
+
 
 workflow{
     if (params.pg_out && params.pg_name && params.pg_reads) {

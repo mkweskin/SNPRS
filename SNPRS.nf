@@ -85,9 +85,9 @@ if(!pangenome_directory.isDirectory()){
 
 // Pangenome Reads
 if("${params.pg_reads}" == ""){
-    read_directory = ""
+    pg_read_directory = ""
 } else{
-    read_directory = file("${params.pg_reads}")
+    pg_read_directory = file("${params.pg_reads}")
 }
 
 // Mapping Directory
@@ -107,12 +107,30 @@ params.log_directory = file(log_directory)
 params.log_file = file(log_file)
 
 include {makePangenome} from "./subworkflows/make_pangenome/main.nf"
+include {indexGenome} from "./subworkflows/make_pangenome/main.nf"
+include {checkGenome} from "./subworkflows/make_pangenome/main.nf"
 
 workflow{
 
-    if("${params.pg_reads}" == ""){
-        print("No Reads!")
-    } else{
-        pangenome_info = makePangenome(pangenome_directory,pg_name,read_directory)
+    // Assemble pangenome from reads
+    if("${params.pg_reads}" != ""){
+        pangenome_info = makePangenome(pangenome_directory,pg_name,pg_read_directory)
+    } 
+    // Get FASTA from --fasta (creates fai/ref in needed)
+    else if("${params.fasta}" != ""){
+        pangenome_info = indexGenome(params.fasta)
     }
+
+    // Specify pangenome by name (checks for fasta, fai, and ref in SNPRS_Pangenomes/PG_NAME)
+    else if("${pg_name}" != "SNPRS_${params.timestamp}"){
+        check_dir = file("${pangenome_directory}/${pg_name}")
+        pangenome_info = checkGenome(check_dir)
+    }
+    
+    // No pangenome information provided
+    else {
+        pangenome_info = Channel.empty()
+    }
+
+    pangenome_info.view()
 }
