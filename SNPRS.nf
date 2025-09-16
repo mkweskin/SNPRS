@@ -109,6 +109,8 @@ params.log_file = file(log_file)
 include {makePangenome} from "./subworkflows/make_pangenome/main.nf"
 include {indexGenome} from "./subworkflows/make_pangenome/main.nf"
 include {checkGenome} from "./subworkflows/make_pangenome/main.nf"
+include {mapReads} from "./subworkflows/mapping/main.nf"
+include {fetchBAM} from "./subworkflows/mapping/main.nf"
 
 workflow{
 
@@ -132,5 +134,13 @@ workflow{
         pangenome_info = Channel.empty()
     }
 
-    pangenome_info.view()
+    // Get BAM files
+    if(pangenome_info && "${params.map_reads}" != ""){
+        bam_files = mapReads(params.map_reads,pangenome_info)
+    } else if("${params.bam_files}" != ""){
+        bam_files = fetchBAM(params.bam_files)
+    }
+
+
 }
+
