@@ -112,7 +112,7 @@ include {checkGenome} from "./subworkflows/make_pangenome/main.nf"
 include {mapReads} from "./subworkflows/mapping/main.nf"
 include {fetchBAM} from "./subworkflows/mapping/main.nf"
 //include {fetchRawParquet} from "./subworkflows/convert_bam/main.nf"
-//include {bamToParquet} from "./subworkflows/convert_bam/main.nf"
+include {bamToParquet} from "./subworkflows/convert_bam/main.nf"
 
 workflow{
 
@@ -139,10 +139,10 @@ workflow{
     existing_bam_data =(params.bam_files) ? fetchBAM(params.bam_files) : Channel.empty()
     bam_data = new_bam_data.concat(existing_bam_data)
 
-    bam_data.view()
 
     // Get raw parquets
-    //new_parquet_data = (pangenome_info && bam_data) ? bamToParquet(bam_data,pangenome_info,mapping_directory) : Channel.empty()
+    new_parquet_data = (pangenome_info && bam_data) ? bamToParquet(bam_data,pangenome_info,mapping_directory) : Channel.empty()
+    new_parquet_data.view()
     //existing_parquet_data = (params.raw_parquet) ? fetchRawParquet(params.raw_parquet) : Channel.empty()
     //raw_parquet_data = new_parquet_data.concat(existing_parquet_data)
 

@@ -2,6 +2,13 @@
 nextflow.enable.dsl=2
 
 // Only check args if reads are provided
+coverage = params.coverage as Integer
+out_prop = params.out_prop as Float
+kmer = params.kmer as Integer
+cpu = params.cpus as Integer
+node = params.nodes as Integer
+
+ray_cores = cpu * node
 
 if("${params.pg_reads}" != ""){
     
@@ -35,14 +42,6 @@ if("${params.pg_reads}" != ""){
     } else{
         size = params.size as Integer
     }
-
-    coverage = params.coverage as Integer
-    out_prop = params.out_prop as Float
-    kmer = params.kmer as Integer
-    cpu = params.cpus as Integer
-    node = params.nodes as Integer
-
-    ray_cores = cpu * node
 }
 
 ///// Create a SNPRS pangenome from reads /////
@@ -315,6 +314,8 @@ process ASSEMBLE_PANGENOME {
 
 process PROCESS_RAY{
 
+    cpus cpu
+
     input:
     val(ray_assembly)
     val(output_directory)
@@ -412,6 +413,8 @@ process CHECK_INDEX{
 
 process INDEX_FASTA{
 
+    cpus cpu
+    
     input:
     val(fasta_path)
 
@@ -514,7 +517,7 @@ process CHECK_GENOME{
     """
 }
 
-// Base workflow if running separate. Must provide --pg_reads
+// Base workflow if running separate. Must provide --pg_reads and --size
 workflow{
     if (params.pg_out && params.pg_name && params.pg_reads) {
         pangenome_data = makePangenome(params.pg_out, params.pg_name,params.pg_reads)

@@ -1,6 +1,8 @@
 #! /usr/bin/env nextflow
 nextflow.enable.dsl=2
 
+def cpu = params.cpus as Integer
+
 ///// Map reads and generate BAMS /////
 workflow mapReads{
 
@@ -28,7 +30,6 @@ process FETCH_MAP_READS{
 
     executor = 'local'
     cpus = 1
-    maxForks = 1
 
     input:
     tuple val(pg_name),val(pg_fasta),val(read_data),val(mapping_directory)
@@ -67,6 +68,9 @@ process FETCH_MAP_READS{
 }
 
 process MAP_READS{
+
+    cpus cpu
+
     input:
     tuple val(sample_id),val(forward),val(reverse),val(mapping_directory)
 
@@ -111,6 +115,7 @@ workflow fetchBAM{
 
 process FETCH_BAM{
     executor = "local"
+    cpus 1
 
     input:
     val(input_bam_files)
