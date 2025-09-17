@@ -1,6 +1,7 @@
 #! /usr/bin/env nextflow
 nextflow.enable.dsl=2
 
+///// Map reads and generate BAMS /////
 workflow mapReads{
 
     take:
@@ -21,36 +22,6 @@ workflow mapReads{
     | splitCsv()
 
     bam_data = MAP_READS(mapping_reads) | splitCsv()
-}
-
-workflow fetchBAM{
-
-    take:
-    input_bam_files
-
-    emit:
-    bam_files
-    
-    main:
-    bam_files = FETCH_BAM(input_bam_files)
-}
-
-process FETCH_BAM{
-    executor = "local"
-
-    input:
-    val(input_bam_files)
-
-    output:
-    stdout
-
-    script:
-
-    def fetchBAMScript = file("${projectDir}/bin/fetchBAMs.py")
-    full_bam = file("${input_bam_files}")
-    """
-    python ${fetchBAMScript} -b ${full_bam}
-    """
 }
 
 process FETCH_MAP_READS{
@@ -123,3 +94,36 @@ process MAP_READS{
     echo -n "${sample_id},${bam_file}"
     """
 }
+
+///// Fetch existing BAM files /////
+
+workflow fetchBAM{
+
+    take:
+    input_bam_files
+
+    emit:
+    bam_files
+    
+    main:
+    bam_files = FETCH_BAM(input_bam_files) | splitCsv()
+}
+
+process FETCH_BAM{
+    executor = "local"
+
+    input:
+    val(input_bam_files)
+
+    output:
+    stdout
+
+    script:
+
+    def fetchBAMScript = file("${projectDir}/bin/fetchBAMs.py")
+    full_bam = file("${input_bam_files}")
+    """
+    python ${fetchBAMScript} -b ${full_bam}
+    """
+}
+

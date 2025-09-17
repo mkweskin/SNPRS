@@ -45,6 +45,7 @@ if("${params.pg_reads}" != ""){
     ray_cores = cpu * node
 }
 
+///// Create a SNPRS pangenome from reads /////
 workflow makePangenome{
 
     take:
@@ -337,6 +338,78 @@ process PROCESS_RAY{
     """
 }
 
+///// Get genome based on FASTA, and index if necessary /////
+workflow indexGenome{
+
+    take:
+    fasta_path
+
+    emit:
+    return_pangenome
+    
+    
+    main:
+    
+    def fasta_file = file(fasta_path)
+    
+    if (!fasta_file.isFile()) {
+        error "Assembly provided by --fasta (${fasta_file}) does not exist..."
+    }
+
+    // Check if ref and .fai exist in the directory
+    index_check = CHECK_INDEX(fasta_file) | splitCsv()
+
+    branched = index_check.branch { it ->
+        needs_indexing: (it[0].toString() == "BBMap_Absent" || it[1].toString() == "SAM_Absent")
+        already_indexed: true
+    }
+
+    // Create ref and fai
+    reindexed = branched.needs_indexing
+    .map { fasta_file }
+    | INDEX_FASTA
+    | splitCsv()
+
+    // ref and fai already exist
+    existing = branched.already_indexed
+    .map { tuple(it[2], it[3]) }
+
+    return_pangenome = reindexed.concat(existing).collect()
+}
+
+process CHECK_INDEX{
+    executor = "local"
+    cpus 1
+
+    input:
+    val(fasta_path)
+
+    output:
+    stdout
+
+    script:
+    
+    def fasta_file = file("${fasta_path}") 
+    def fasta_dir = fasta_file.getParent()
+    def fasta_name = fasta_file.getName()
+    def fasta_basename = fasta_file.getBaseName()
+    
+    def bbmap_ref = file("${fasta_dir}/ref")
+    def sam_idx = file("${fasta_dir}/${fasta_name}.fai")
+
+    def bbmap_check = bbmap_ref.exists()
+    ? "BBMap_Present"
+    : "BBMap_Absent"
+
+    def sam_check = sam_idx.exists()
+    ? "SAM_Present"
+    : "SAM_Absent"
+
+    """
+    echo -n "${bbmap_check},${sam_check},${fasta_basename},${fasta_file}"
+    """
+}
+
 process INDEX_FASTA{
 
     input:
@@ -364,11 +437,30 @@ process INDEX_FASTA{
     : "samtools faidx ${fasta_file}"
 
     """
-    cd ${fasta_dir}
-    ${bbmap_cmd}
-    ${sam_cmd}
+    cd ${fasta_dir} &&
+    ${bbmap_cmd} &&
+    ${sam_cmd} &&
     echo -n "${fasta_basename},${fasta_file}"
     """
+}
+
+///// Get genome based on pg_name (Look in SNPRS_Pangenomes) /////
+workflow checkGenome{
+
+    take:
+    genome_path
+
+    emit:
+    pangenome_info
+
+    main:
+    def genome_dir = file("${genome_path}")
+
+    if(genome_dir.isDirectory()){
+        pangenome_info = CHECK_GENOME(genome_dir) | splitCsv()
+    } else{
+        error "Directory ${genome_dir} does not exist..."
+    }
 }
 
 process CHECK_GENOME{
@@ -422,43 +514,7 @@ process CHECK_GENOME{
     """
 }
 
-workflow indexGenome{
-
-    take:
-    fasta_path
-
-    emit:
-    pangenome_info
-
-    main:
-    def fasta_file = file("${fasta_path}")
-
-    if(fasta_file.isFile()){
-        pangenome_info = INDEX_FASTA(fasta_file) | splitCsv()
-    } else{
-        error "Assembly provided by --fasta (${fasta_file}) does not exist..."
-    }
-}
-
-workflow checkGenome{
-
-    take:
-    genome_path
-
-    emit:
-    pangenome_info
-
-    main:
-    def genome_dir = file("${genome_path}")
-
-    if(genome_dir.isDirectory()){
-        pangenome_info = CHECK_GENOME(genome_dir) | splitCsv()
-    } else{
-        error "Directory ${genome_dir} does not exist..."
-    }
-}
-
-
+// Base workflow if running separate. Must provide --pg_reads
 workflow{
     if (params.pg_out && params.pg_name && params.pg_reads) {
         pangenome_data = makePangenome(params.pg_out, params.pg_name,params.pg_reads)

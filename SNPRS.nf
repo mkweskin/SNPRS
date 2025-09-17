@@ -111,8 +111,8 @@ include {indexGenome} from "./subworkflows/make_pangenome/main.nf"
 include {checkGenome} from "./subworkflows/make_pangenome/main.nf"
 include {mapReads} from "./subworkflows/mapping/main.nf"
 include {fetchBAM} from "./subworkflows/mapping/main.nf"
-include {fetchRawParquet} from "./subworkflows/convert_bam/main.nf"
-include {bamToParquet} from "./subworkflows/convert_bam/main.nf"
+//include {fetchRawParquet} from "./subworkflows/convert_bam/main.nf"
+//include {bamToParquet} from "./subworkflows/convert_bam/main.nf"
 
 workflow{
 
@@ -124,35 +124,28 @@ workflow{
     else if("${params.fasta}" != ""){
         pangenome_info = indexGenome(params.fasta)
     }
-
     // Specify pangenome by name (checks for fasta, fai, and ref in SNPRS_Pangenomes/PG_NAME)
     else if("${pg_name}" != "SNPRS_${params.timestamp}"){
         check_dir = file("${pangenome_directory}/${pg_name}")
         pangenome_info = checkGenome(check_dir)
     }
-    
     // No pangenome information provided
     else {
         pangenome_info = Channel.empty()
     }
 
     // Get BAM files
-    if(pangenome_info && "${params.map_reads}" != ""){
-        bam_data = mapReads(params.map_reads,pangenome_info,mapping_directory)
-    } else if("${params.bam_files}" != ""){
-        bam_data = fetchBAM(params.bam_files)
-    } else{
-        bam_data = Channel.empty()
-    }
+    new_bam_data = (pangenome_info && params.map_reads) ? mapReads(params.map_reads, pangenome_info, mapping_directory) : Channel.empty()
+    existing_bam_data =(params.bam_files) ? fetchBAM(params.bam_files) : Channel.empty()
+    bam_data = new_bam_data.concat(existing_bam_data)
+
+    bam_data.view()
 
     // Get raw parquets
-    if(pangenome_info && bam_data){
-        raw_parquet_data = bamToParquet(bam_data,pangenome_info,mapping_directory)
-    } else if("${params.raw_parquet}" != ""){
-        raw_parquet_data = fetchRawParquet(params.raw_parquet)
-    } else{
-        raw_parquet_data = Channel.empty()
-    }
+    //new_parquet_data = (pangenome_info && bam_data) ? bamToParquet(bam_data,pangenome_info,mapping_directory) : Channel.empty()
+    //existing_parquet_data = (params.raw_parquet) ? fetchRawParquet(params.raw_parquet) : Channel.empty()
+    //raw_parquet_data = new_parquet_data.concat(existing_parquet_data)
+
 
 
 }
