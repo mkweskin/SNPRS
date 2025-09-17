@@ -6,9 +6,10 @@ coverage = params.coverage as Integer
 out_prop = params.out_prop as Float
 kmer = params.kmer as Integer
 cpu = params.cpus as Integer
+ray_cpu = params.ray_cpus as Integer
 node = params.nodes as Integer
 
-ray_cores = cpu * node
+ray_cores = ray_cpu * node
 
 if("${params.pg_reads}" != ""){
     
@@ -286,7 +287,7 @@ process ASSEMBLE_PANGENOME {
     tag "Assemble_Pangenome"
 
     executor = 'slurm'
-    clusterOptions = "--nodes=${node} --ntasks-per-node=${cpu}"
+    clusterOptions = "--nodes=${node} --ntasks-per-node=${ray_cpu}"
 
     input:
     val(subset_folder)

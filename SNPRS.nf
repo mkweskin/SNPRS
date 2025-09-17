@@ -113,21 +113,23 @@ include {mapReads} from "./subworkflows/mapping/main.nf"
 include {fetchBAM} from "./subworkflows/mapping/main.nf"
 include {fetchRawParquet} from "./subworkflows/convert_bam/main.nf"
 include {bamToParquet} from "./subworkflows/convert_bam/main.nf"
+include {callBases} from "./subworkflows/call_bases/main.nf"
+include {fetchCalledBases} from "./subworkflows/call_bases/main.nf"
 
 workflow{
 
     // Assemble pangenome from reads
     if("${params.pg_reads}" != ""){
-        pangenome_info = makePangenome(pangenome_directory,pg_name,pg_read_directory)
+        pangenome_info = makePangenome(pangenome_directory,pg_name,pg_read_directory).first()
     } 
     // Get FASTA from --fasta (creates fai/ref in needed)
     else if("${params.fasta}" != ""){
-        pangenome_info = indexGenome(params.fasta)
+        pangenome_info = indexGenome(params.fasta).first()
     }
     // Specify pangenome by name (checks for fasta, fai, and ref in SNPRS_Pangenomes/PG_NAME)
     else if("${pg_name}" != "SNPRS_${params.timestamp}"){
         check_dir = file("${pangenome_directory}/${pg_name}")
-        pangenome_info = checkGenome(check_dir)
+        pangenome_info = checkGenome(check_dir).first()
     }
     // No pangenome information provided
     else {
@@ -145,5 +147,9 @@ workflow{
     existing_parquet_data = (params.raw_parquet) ? fetchRawParquet(params.raw_parquet) : Channel.empty()
     raw_parquet_data = new_parquet_data.concat(existing_parquet_data)
 
-}
+    // Call bases
+    new_called_bases = (pangenome_info && raw_parquet_data) ? callBases(raw_parquet_data,pangenome_info,mapping_directory) : Channel.empty()
+    existing_called_bases = (params.called_bases) ? fetchCalledBases(params.called_bases) : Channel.empty()
+    called_bases_data = new_called_bases.concat(existing_called_bases)
+}   
 
