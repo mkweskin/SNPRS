@@ -58,6 +58,36 @@ process BAM_TO_PARQUET{
     """
 }
 
+///// Fetch Raw Parquets /////
+workflow fetchRawParquet{
+    take:
+    input_raw_parquet
+
+    emit:
+    raw_parquet_data
+
+    main:
+    raw_parquet_data = FETCH_RAW_PARQUET(input_raw_parquet) | splitCsv()
+}
+
+process FETCH_RAW_PARQUET{
+    executor = "local"
+    cpus = 1
+
+    input:
+    val(input_raw_parquet)
+
+    output:
+    stdout
+
+    script:
+
+    def fetch_raw_parquet_script = file("${projectDir}/bin/fetchRawParquet.py")
+    def full_parquet = file("${input_raw_parquet}")
+    """
+    python ${fetch_raw_parquet_script} -p ${full_parquet}
+    """
+}
 
 // Base workflow/processes if running separate. Must provide --bam_files and --fasta
 workflow{
