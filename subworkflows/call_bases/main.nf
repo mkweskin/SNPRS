@@ -34,7 +34,7 @@ process CALL_BASES{
 
     script:
 
-    def base_call_script = file("${projectDir}/bin/call_bases.py")
+    def base_call_script = file("${projectDir}/bin/callBases.py")
     def output_directory = params.cb_out ? file("${params.cb_out}") : file("${out_dir}/${pg_name}/Base_Calls")
     def output_file = file("${output_directory}/${sample_id}_Called.parquet")
     def full_parquet = file("${sample_parquet}")
