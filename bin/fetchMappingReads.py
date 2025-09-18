@@ -57,7 +57,7 @@ def pair_reads(read_dir, read_filetype, forward_suffix, reverse_suffix):
 
 parser = argparse.ArgumentParser(description='Fetch Reads')
 parser.add_argument('-d','--dir',dest="read_dir", type=str, help='Path to directory containing read files or a file with a list of directories')
-parser.add_argument('-e','--extention',dest="read_filetype",default='fastq.gz', type=str, help='Read extention')
+parser.add_argument('-e','--extension ',dest="read_filetype",default='fastq.gz', type=str, help='Read extension ')
 parser.add_argument('-f','--forward',dest = "forward_suffix",default='_1.fastq.gz', type=str, help='Forward suffix')
 parser.add_argument('-r','--reverse',dest = "reverse_suffix",default = '_2.fastq.gz', type=str, help='Reverse suffix')
 parser.add_argument('-m','--mapping_dir',dest = "mapping_dir",default = None, type=str, help='Final directory to save mapping data')

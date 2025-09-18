@@ -113,7 +113,7 @@ def pair_reads(group_df, read_filetype, forward_suffix, reverse_suffix):
 
 parser = argparse.ArgumentParser(description='Fetch Reads')
 parser.add_argument('-d','--dir',dest="read_dir", type=str, help='Path to directory containing nested read files')
-parser.add_argument('-e','--extention',dest="read_filetype",default='fastq.gz', type=str, help='Read extention')
+parser.add_argument('-e','--extension',dest="read_filetype",default='fastq.gz', type=str, help='Read extension')
 parser.add_argument('-f','--forward',dest = "forward_suffix",default='_1.fastq.gz', type=str, help='Forward suffix')
 parser.add_argument('-r','--reverse',dest = "reverse_suffix",default = '_2.fastq.gz', type=str, help='Reverse suffix')
 parser.add_argument('-o','--output',dest = "output",default = "NA", type=str, help='Path to group output csv')

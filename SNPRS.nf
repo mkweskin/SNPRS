@@ -99,6 +99,13 @@ if(!mapping_directory.isDirectory()){
     tab_log("Found mapping directory: ${mapping_directory}...")
 }
 
+// Validation
+if(params.validation){
+     tab_log("Running in validation mode, pangenome reads will be mapped back onto the pangenome and joined into an alignment")   
+}
+
+
+
 // Parameterize major directories
 params.snprs_directory = file(snprs_directory)
 params.pangenome_directory = file(pangenome_directory)
@@ -122,34 +129,55 @@ workflow{
     if("${params.pg_reads}" != ""){
         pangenome_info = makePangenome(pangenome_directory,pg_name,pg_read_directory).first()
     } 
+
     // Get FASTA from --fasta (creates fai/ref in needed)
     else if("${params.fasta}" != ""){
         pangenome_info = indexGenome(params.fasta).first()
     }
+
     // Specify pangenome by name (checks for fasta, fai, and ref in SNPRS_Pangenomes/PG_NAME)
     else if("${pg_name}" != "SNPRS_${params.timestamp}"){
         check_dir = file("${pangenome_directory}/${pg_name}")
         pangenome_info = checkGenome(check_dir).first()
     }
+
     // No pangenome information provided
     else {
         pangenome_info = Channel.empty()
     }
 
     // Get BAM files
-    new_bam_data = (pangenome_info && params.map_reads) ? mapReads(params.map_reads, pangenome_info, mapping_directory) : Channel.empty()
-    existing_bam_data =(params.bam_files) ? fetchBAM(params.bam_files) : Channel.empty()
-    bam_data = new_bam_data.concat(existing_bam_data)
-
+    if(params.validation && pangenome_info){
+        validation_reads = fetchValidationReads(pangenome_info,pangenome_directory)
+        bam_data = mapReads(validation_reads, pangenome_info, pangenome_directory) : Channel.empty()
+    } else{
+        new_bam_data = (pangenome_info && params.map_reads) ? mapReads(params.map_reads, pangenome_info, mapping_directory) : Channel.empty()
+        existing_bam_data =(params.bam_files) ? fetchBAM(params.bam_files) : Channel.empty()
+        bam_data = new_bam_data.concat(existing_bam_data)
+    }
 
     // Get raw parquets
-    new_parquet_data = (pangenome_info && bam_data) ? bamToParquet(bam_data,pangenome_info,mapping_directory) : Channel.empty()
-    existing_parquet_data = (params.raw_parquet) ? fetchRawParquet(params.raw_parquet) : Channel.empty()
-    raw_parquet_data = new_parquet_data.concat(existing_parquet_data)
+    if(params.validation && bam_data){
+        raw_parquet_data = bamToParquet(bam_data,pangenome_info,pangenome_directory)
+    }
+    else{
+        new_parquet_data = (pangenome_info && bam_data) ? bamToParquet(bam_data,pangenome_info,mapping_directory) : Channel.empty()
+        existing_parquet_data = (params.raw_parquet) ? fetchRawParquet(params.raw_parquet) : Channel.empty()
+        raw_parquet_data = new_parquet_data.concat(existing_parquet_data)
+    }
 
     // Call bases
-    new_called_bases = (pangenome_info && raw_parquet_data) ? callBases(raw_parquet_data,pangenome_info,mapping_directory) : Channel.empty()
-    existing_called_bases = (params.called_bases) ? fetchCalledBases(params.called_bases) : Channel.empty()
-    called_bases_data = new_called_bases.concat(existing_called_bases)
+    if(params.validation && raw_parquet_data){
+        called_bases_data = callBases(raw_parquet_data,pangenome_info,pangenome_directory)
+    } else{
+        new_called_bases = (pangenome_info && raw_parquet_data) ? callBases(raw_parquet_data,pangenome_info,mapping_directory) : Channel.empty()
+        existing_called_bases = (params.called_bases) ? fetchCalledBases(params.called_bases) : Channel.empty()
+        called_bases_data = new_called_bases.concat(existing_called_bases)
+    }
+
+    // Joining?
+    //if(params.join){
+    //    new_joined_data = (called_bases_data) ? joinParquets(called_bases_data) : Channel.empty()
+    //}
 }   
 

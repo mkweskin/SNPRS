@@ -99,6 +99,57 @@ process MAP_READS{
     """
 }
 
+///// Process validation reads /////
+
+
+// If running in validation mode, fetch reads from prep directory and create soft-links
+workflow fetchValidationReads{
+    take:
+    pangenome_info
+    pangenome_directory
+
+    emit:
+    read_dir
+
+    main:
+    read_dir = FETCH_VALIDATION_READS(pangenome_info,pangenome_directory).first()
+}
+
+process FETCH_VALIDATION_READS{
+
+    executor = 'local'
+    cpus = 1
+
+    input:
+    tuple val(pg_name),val(pg_fasta)
+    val(pangenome_directory)
+
+    output:
+    stdout
+
+    script:
+
+    def fetchValidationScript = file("${projectDir}/bin/fetchValidationReads.py")
+    def validation_dir = file("${pangenome_directory}/${pg_name}/Validation")
+    def validation_read_dir = file("${pangenome_directory}/${pg_name}/Validation/Reads")
+    def pangenome_prep_directory = file("${pangenome_directory}/${pg_name}/Prep_${pg_name}")
+    def read_count_file = file("${pangenome_prep_directory}/Read_Counts.csv")
+
+
+    """
+    if [[ -d "${validation_dir}" ]]; then
+        echo "Error: Validation directory exists at ${validation_dir}" >&2
+        exit 1
+    fi
+    
+    mkdir $validation_dir &&
+    mkdir $validation_read_dir
+
+    python ${fetchValidationScript} -r ${read_count_file} -o ${validation_read_dir} --extension ${params.pg_ext} --forward ${params.pg_forward} --reverse ${params.pg_reverse} &&
+    echo -n "${validation_read_dir}"
+    """
+}
+
 ///// Fetch existing BAM files /////
 
 workflow fetchBAM{
