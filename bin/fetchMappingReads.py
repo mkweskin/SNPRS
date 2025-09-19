@@ -60,7 +60,6 @@ parser.add_argument('-d','--dir',dest="read_dir", type=str, help='Path to direct
 parser.add_argument('-e','--extension ',dest="read_filetype",default='fastq.gz', type=str, help='Read extension ')
 parser.add_argument('-f','--forward',dest = "forward_suffix",default='_1.fastq.gz', type=str, help='Forward suffix')
 parser.add_argument('-r','--reverse',dest = "reverse_suffix",default = '_2.fastq.gz', type=str, help='Reverse suffix')
-parser.add_argument('-m','--mapping_dir',dest = "mapping_dir",default = None, type=str, help='Final directory to save mapping data')
 args = parser.parse_args()
 
 # Get read filetype information
@@ -86,6 +85,17 @@ for dir in read_dirs:
     read_data.append(pair_reads(dir,read_filetype,forward_suffix,reverse_suffix))
 
 read_df = pd.concat(read_data).reset_index(drop=True)
-assert read_df["Sample_ID"].is_unique, "Duplicate Sample_IDs detected"
-read_df['Mapping_Dir'] = os.path.abspath(args.mapping_dir)
+
+if not read_df["Sample_ID"].is_unique:
+    seen = {}
+    new_ids = []
+    for sid in read_df["Sample_ID"]:
+        if sid not in seen:
+            seen[sid] = 0
+            new_ids.append(sid)
+        else:
+            seen[sid] += 1
+            new_ids.append(f"{sid}_{seen[sid]}")
+    read_df["Sample_ID"] = new_ids
+
 read_df.to_csv(sys.stdout, sep=",", index=False, header=False)

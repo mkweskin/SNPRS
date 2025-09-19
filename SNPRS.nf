@@ -27,14 +27,12 @@ def cmd_args = workflow.commandLine
 
 timestamp = "${params.timestamp}"
 
-// Base SNPRS Directory
-if("${params.out}"==""){
-    error "Must provide base directory for output (--out)..."
-} else{
+if(params.out){
     snprs_directory = file(params.out)
+    parent_dir = snprs_directory.getParent()
     if(!snprs_directory.isDirectory()){
-        if(!snprs_directory.getParent().isDirectory()){
-            error "Parent directory for output is not a valid directory [${snprs_directory.getParent()}]..."
+        if(!parent_dir.isDirectory()){
+            error "Parent directory for output is not a valid directory [${parent_dir}]..."
         } else{
             snprs_directory.mkdirs()
             new_dir = true 
@@ -42,6 +40,10 @@ if("${params.out}"==""){
     } else{
         new_dir = false
     }
+} else{
+    snprs_directory = file("SNPRS_${timestamp}")
+    snprs_directory.mkdirs()
+    new_dir = true 
 }
 
 // Log File
@@ -55,6 +57,11 @@ log_file = file("${log_directory}/SNPRS_Log_${timestamp}.txt")
 if (log_file.exists()) {
     error "Log file ${log_file} already exists?"
 } else {
+    
+    // Cache log file info as params for other processes
+    params.log_directory = file(log_directory)
+    params.log_file = file(log_file)
+    
     log("SNPRS Log File")
     log("${new java.text.SimpleDateFormat('yyyy-MM-dd HH:mm:ss').format(new java.util.Date())}\n")
     log("Command: ${cmd_args}\n")
@@ -66,13 +73,7 @@ if (log_file.exists()) {
     }
 }
 
-// Pangenome output infromation
-if(params.pg_name == ""){
-    pg_name = "SNPRS_${params.timestamp}"
-    params.pg_name = "${pg_name}"
-} else{
-    pg_name = "${params.pg_name}"
-}
+// Major subdirectories
 
 // Pangenome Directory
 pangenome_directory = file("${snprs_directory}/SNPRS_Pangenomes")
@@ -81,13 +82,6 @@ if(!pangenome_directory.isDirectory()){
     tab_log("Created pangenome directory: ${pangenome_directory}...")
 } else{
     tab_log("Found pangenome directory: ${pangenome_directory}...")
-}
-
-// Pangenome Reads
-if("${params.pg_reads}" == ""){
-    pg_read_directory = ""
-} else{
-    pg_read_directory = file("${params.pg_reads}")
 }
 
 // Mapping Directory
@@ -99,46 +93,61 @@ if(!mapping_directory.isDirectory()){
     tab_log("Found mapping directory: ${mapping_directory}...")
 }
 
-// Validation
-if(params.validation){
-     tab_log("Running in validation mode, pangenome reads will be mapped back onto the pangenome and joined into an alignment")   
+// Joined Directory
+joined_directory = file("${snprs_directory}/Joined")
+if(!joined_directory.isDirectory()){
+    joined_directory.mkdirs() 
+    tab_log("Created joining directory: ${joined_directory}...")
+} else{
+    tab_log("Found joining directory: ${joined_directory}...")
 }
 
+// Check for validation mode
+if(params.validate){    
+    tab_log("Running in validation mode, pangenome reads will be mapped back onto the pangenome and joined into an alignment")
+}
 
+// Pangenome output infromation
+pg_name = (params.pg_name) ? "${params.pg_name}" : "SNPRS_${timestamp}"
 
-// Parameterize major directories
-params.snprs_directory = file(snprs_directory)
-params.pangenome_directory = file(pangenome_directory)
-params.mapping_directory = file(mapping_directory)
-params.log_directory = file(log_directory)
-params.log_file = file(log_file)
+// Set relevant paths based on --pg_name
+current_pg_directory = file("${pangenome_directory}/${pg_name}")
+validation_directory = file("${current_pg_directory}/Validation")
+validation_read_directory = file("${validation_directory}/Reads")
 
-include {makePangenome} from "./subworkflows/make_pangenome/main.nf"
-include {indexGenome} from "./subworkflows/make_pangenome/main.nf"
-include {checkGenome} from "./subworkflows/make_pangenome/main.nf"
+current_joined_directory = (params.validate) ? file("${validation_directory}/Joined") : file("${joined_directory}/${pg_name}")
+current_mapping_directory = (params.validate) ? file("${validation_directory}/Mapping") : file("${mapping_directory}/${pg_name}")
+
+include {assembleGenome} from "./subworkflows/prepare_genome/main.nf"
+include {prepareGenome} from "./subworkflows/prepare_genome/main.nf"
+include {checkSNPRSGenome} from "./subworkflows/prepare_genome/main.nf"
+
 include {mapReads} from "./subworkflows/mapping/main.nf"
 include {fetchBAM} from "./subworkflows/mapping/main.nf"
+
 include {fetchRawParquet} from "./subworkflows/convert_bam/main.nf"
 include {bamToParquet} from "./subworkflows/convert_bam/main.nf"
+
 include {callBases} from "./subworkflows/call_bases/main.nf"
 include {fetchCalledBases} from "./subworkflows/call_bases/main.nf"
 
 workflow{
 
     // Assemble pangenome from reads
-    if("${params.pg_reads}" != ""){
-        pangenome_info = makePangenome(pangenome_directory,pg_name,pg_read_directory).first()
+    if(params.pg_reads){
+        pg_read_data = file(params.pg_reads)
+        pangenome_info = assembleGenome(pangenome_directory,pg_name,pg_read_data) | first
     } 
 
     // Get FASTA from --fasta (creates fai/ref in needed)
-    else if("${params.fasta}" != ""){
-        pangenome_info = indexGenome(params.fasta).first()
+    else if(params.fasta){
+        fasta_file = file(params.fasta)
+        pangenome_info = prepareGenome(fasta_file) | first
     }
 
     // Specify pangenome by name (checks for fasta, fai, and ref in SNPRS_Pangenomes/PG_NAME)
-    else if("${pg_name}" != "SNPRS_${params.timestamp}"){
-        check_dir = file("${pangenome_directory}/${pg_name}")
-        pangenome_info = checkGenome(check_dir).first()
+    else if(params.pg_name){
+        pangenome_info = checkSNPRSGenome(pangenome_directory,params.pg_name) | first
     }
 
     // No pangenome information provided
@@ -146,38 +155,43 @@ workflow{
         pangenome_info = Channel.empty()
     }
 
-    // Get BAM files
-    if(params.validation && pangenome_info){
-        validation_reads = fetchValidationReads(pangenome_info,pangenome_directory)
-        bam_data = mapReads(validation_reads, pangenome_info, pangenome_directory) : Channel.empty()
+    // Get BAM files    
+    existing_bam_data = (params.bam_files && !params.validate) ? fetchBAM(params.bam_files) : Channel.empty()
+
+    if(params.validate){
+        new_bam_data = (pangenome_info) ? mapReads(validation_read_directory,pangenome_info,current_mapping_directory) : Channel.empty()
+    } else if(params.map_reads){
+        mapping_read_data = (params.map_reads) ? file(params.map_reads) : ""
+        new_bam_data = (pangenome_info && params.map_reads) ? mapReads(mapping_read_data,pangenome_info,current_mapping_directory) : Channel.empty()
     } else{
-        new_bam_data = (pangenome_info && params.map_reads) ? mapReads(params.map_reads, pangenome_info, mapping_directory) : Channel.empty()
-        existing_bam_data =(params.bam_files) ? fetchBAM(params.bam_files) : Channel.empty()
-        bam_data = new_bam_data.concat(existing_bam_data)
+        new_bam_data = Channel.empty()
     }
+
+    bam_data = existing_bam_data.concat(new_bam_data)
 
     // Get raw parquets
-    if(params.validation && bam_data){
-        raw_parquet_data = bamToParquet(bam_data,pangenome_info,pangenome_directory)
-    }
-    else{
-        new_parquet_data = (pangenome_info && bam_data) ? bamToParquet(bam_data,pangenome_info,mapping_directory) : Channel.empty()
-        existing_parquet_data = (params.raw_parquet) ? fetchRawParquet(params.raw_parquet) : Channel.empty()
-        raw_parquet_data = new_parquet_data.concat(existing_parquet_data)
-    }
+    existing_parquet_data = (params.raw_parquet && !params.validate) ? fetchRawParquet(params.raw_parquet) : Channel.empty()
+    new_parquet_data = (pangenome_info && bam_data) ? bamToParquet(bam_data,pangenome_info,current_mapping_directory) : Channel.empty()
+    raw_parquet_data = existing_parquet_data.concat(new_parquet_data)
 
-    // Call bases
-    if(params.validation && raw_parquet_data){
-        called_bases_data = callBases(raw_parquet_data,pangenome_info,pangenome_directory)
-    } else{
-        new_called_bases = (pangenome_info && raw_parquet_data) ? callBases(raw_parquet_data,pangenome_info,mapping_directory) : Channel.empty()
-        existing_called_bases = (params.called_bases) ? fetchCalledBases(params.called_bases) : Channel.empty()
-        called_bases_data = new_called_bases.concat(existing_called_bases)
-    }
+    // Get called bases
+    existing_called_base_data = (params.called_bases && !params.validate) ? fetchCalledBases(params.called_bases) : Channel.empty()
+    new_called_base_data = (pangenome_info && raw_parquet_data) ? callBases(raw_parquet_data,pangenome_info,current_mapping_directory) : Channel.empty()
+    called_bases_data = existing_called_base_data.concat(new_called_base_data)
+    
+    called_bases_data.view()
+}
 
+
+
+
+
+
+/*
     // Joining?
     //if(params.join){
     //    new_joined_data = (called_bases_data) ? joinParquets(called_bases_data) : Channel.empty()
     //}
 }   
 
+*/

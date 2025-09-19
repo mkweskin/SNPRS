@@ -16,14 +16,15 @@ workflow mapReads{
 
     main:
     
-    mapping_info = pangenome_info
-    .map{it -> tuple(it[0],it[1],"${read_data}","${mapping_directory}")}
+    map_dir = "${mapping_directory}"
+    read_string = "${read_data}"
 
+    mapping_reads = pangenome_info.map{it -> tuple(it[0],it[1],read_string,map_dir)}
+    | FETCH_MAP_READS
+    | splitCsv
 
-    mapping_reads = FETCH_MAP_READS(mapping_info) 
-    | splitCsv()
-
-    bam_data = MAP_READS(mapping_reads) | splitCsv()
+    bam_data = MAP_READS(mapping_reads,map_dir) 
+    | splitCsv
 }
 
 process FETCH_MAP_READS{
@@ -41,29 +42,41 @@ process FETCH_MAP_READS{
 
     def fetchMapScript = file("${projectDir}/bin/fetchMappingReads.py")
 
-    def full_read = file("${read_data}")
     def fasta_file = file("${pg_fasta}")
     def fasta_dir = fasta_file.getParent()
     def bbmap_ref = file("${fasta_dir}/ref")
+    
+    def ext
+    def forward
+    def reverse
 
-    def map_dir = file("${mapping_directory}/${pg_name}")
-    def existing_ref = file("${map_dir}/ref")
-    def bam_dir = file ("${map_dir}/BAM")
-    def parquet_dir = file ("${map_dir}/Raw_Parquet")
-    def base_call_dir = file ("${map_dir}/Base_Calls")
+    if(params.validate){
+        ext = "${params.pg_ext}"
+        forward = "${params.pg_forward}"
+        reverse = "${params.pg_reverse}"
+    } else{
+        ext = "${params.map_ext}"
+        forward = "${params.map_forward}"
+        reverse = "${params.map_reverse}"
+    }
+
+    def existing_ref = file("${mapping_directory}/ref")
+    def bam_dir = file ("${mapping_directory}/BAMs")
+    def parquet_dir = file ("${mapping_directory}/Raw_Parquet")
+    def base_call_dir = file ("${mapping_directory}/Base_Calls")
 
     """
-    mkdir -p $map_dir &&
+    mkdir -p $mapping_directory &&
     mkdir -p $bam_dir &&
     mkdir -p $parquet_dir &&
     mkdir -p $base_call_dir &&
-    cd $map_dir
+    cd $mapping_directory
 
     if [[ ! -d "${existing_ref}" ]]; then
         cp -as ${bbmap_ref} .
     fi
 
-    python ${fetchMapScript} -d ${full_read} -e $params.map_ext -f $params.map_forward -r $params.map_reverse -m $map_dir
+    python ${fetchMapScript} -d ${read_data} -e $ext -f $forward -r $reverse
     """
 }
 
@@ -72,81 +85,28 @@ process MAP_READS{
     cpus cpu
 
     input:
-    tuple val(sample_id),val(forward),val(reverse),val(mapping_directory)
+    tuple val(sample_id),val(forward),val(reverse)
+    val(mapping_directory)
 
     output:
     stdout
 
     script:
 
-    def map_dir = file("${mapping_directory}")
-    def bam_dir = file ("${map_dir}/BAM")
+    def bam_dir = file ("${mapping_directory}/BAMs")
     def bam_file = file("${bam_dir}/${sample_id}.bam")
 
+    def delete_cmd = (params.overwrite) ? "rm -rf $bam_file" : ":"
+
     def mapping_cmd = reverse
-    ? "bbmap.sh in=${forward} in2=${reverse} ambiguous=toss mappedonly=t out=stdout.sam | samtools view -b - | samtools sort -@ ${params.cpus} -o ${bam_file} -"
-    : "bbmap.sh in=${forward} ambiguous=toss mappedonly=t out=stdout.sam | samtools view -b - | samtools sort -@ ${params.cpus} -o ${bam_file} -"
+    ? "bbmap.sh in=${forward} in2=${reverse} ambiguous=toss mappedonly=t out=stdout.sam | samtools view -b - | samtools sort -@ ${cpu} -o ${bam_file} -"
+    : "bbmap.sh in=${forward} ambiguous=toss mappedonly=t out=stdout.sam | samtools view -b - | samtools sort -@ ${cpu} -o ${bam_file} -"
 
     """
-    if [[ -f "${bam_file}" ]]; then
-        echo "Error: BAM file exists at ${bam_file}" >&2
-        exit 1
-    fi
-
-    cd $map_dir &&
+    cd $mapping_directory &&
+    $delete_cmd &&
     $mapping_cmd &&
     echo -n "${sample_id},${bam_file}"
-    """
-}
-
-///// Process validation reads /////
-
-
-// If running in validation mode, fetch reads from prep directory and create soft-links
-workflow fetchValidationReads{
-    take:
-    pangenome_info
-    pangenome_directory
-
-    emit:
-    read_dir
-
-    main:
-    read_dir = FETCH_VALIDATION_READS(pangenome_info,pangenome_directory).first()
-}
-
-process FETCH_VALIDATION_READS{
-
-    executor = 'local'
-    cpus = 1
-
-    input:
-    tuple val(pg_name),val(pg_fasta)
-    val(pangenome_directory)
-
-    output:
-    stdout
-
-    script:
-
-    def fetchValidationScript = file("${projectDir}/bin/fetchValidationReads.py")
-    def validation_dir = file("${pangenome_directory}/${pg_name}/Validation")
-    def validation_read_dir = file("${pangenome_directory}/${pg_name}/Validation/Reads")
-    def pangenome_prep_directory = file("${pangenome_directory}/${pg_name}/Prep_${pg_name}")
-    def read_count_file = file("${pangenome_prep_directory}/Read_Counts.csv")
-
-
-    """
-    if [[ -d "${validation_dir}" ]]; then
-        echo "Error: Validation directory exists at ${validation_dir}" >&2
-        exit 1
-    fi
-    
-    mkdir $validation_dir &&
-    mkdir $validation_read_dir
-
-    python ${fetchValidationScript} -r ${read_count_file} -o ${validation_read_dir} --extension ${params.pg_ext} --forward ${params.pg_forward} --reverse ${params.pg_reverse} &&
-    echo -n "${validation_read_dir}"
     """
 }
 

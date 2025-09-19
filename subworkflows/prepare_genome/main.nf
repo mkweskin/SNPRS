@@ -1,85 +1,51 @@
 #! /usr/bin/env nextflow
 nextflow.enable.dsl=2
 
-// Only check args if reads are provided
 coverage = params.coverage as Integer
 out_prop = params.out_prop as Float
 kmer = params.kmer as Integer
-cpu = params.cpus as Integer
-ray_cpu = params.ray_cpus as Integer
-node = params.nodes as Integer
 
+cpu = params.cpus as Integer
+node = params.nodes as Integer
+ray_cpu = (params.ray_cpus) ? params.ray_cpus as Integer : cpu
 ray_cores = ray_cpu * node
 
-if("${params.pg_reads}" != ""){
-    
-    read_directory = file("${params.pg_reads}")
-    
-    if(!read_directory.isDirectory()){
-        error "Pangenome read directory (--pg_reads) ${params.pg_reads} does not exist..."
-    }
-
-    if(params.pg_name == ""){
-        pg_name = "SNPRS_${params.timestamp}"
-        params.pg_name = "${pg_name}"
-    } else{
-        pg_name = "${params.pg_name}"
-    }
-
-    if(params.pg_out == ""){
-        output_directory = file("${pg_name}")
-        params.pg_out = "${output_directory}"
-    }
-    else{
-        output_directory = file("${params.pg_out}")
-    }
-
-    if(!output_directory.getParent().isDirectory()){
-        error "Parent directory for output is not a valid directory [${output_directory.getParent()}]..."
-    }
-
-    if("${params.size}" == ""){
-        error "Must provide approximate genome size in bp via --size"
-    } else{
-        size = params.size as Integer
-    }
-}
-
 ///// Create a SNPRS pangenome from reads /////
-workflow makePangenome{
+workflow assembleGenome{
 
     take:
-    output_directory
+    pangnome_directory
     pg_name
-    read_directory
+    pg_read_data
 
     emit:
-    pangenome_info
+    return_pangenome
 
     main:
 
-    input_pangenome_reads = FETCH_PG_READS(output_directory,pg_name,read_directory) 
-    | splitCsv()
+    if(!params.size){
+        error "Cannot assemble pangenome without --size estimate (genome size in basepairs)"
+    }
 
+    input_pangenome_reads = FETCH_PG_READS(pangnome_directory,pg_name,pg_read_data) | splitCsv
 
     base_count_file = input_pangenome_reads
-    .map{it->tuple(it[0],it[3],it[4],"${output_directory}","${pg_name}")}
+    .map{it->tuple(it[0],it[3],it[4],"${pangnome_directory}","${pg_name}")}
     | COUNT_BASES
     | collect
     | flatten
     | first
 
-    subset_guide = CALCULATE_SUBSETS(base_count_file,output_directory,pg_name) |
-    splitCsv() |
-    branch{it ->
+    subset_guide = CALCULATE_SUBSETS(base_count_file,pangnome_directory,pg_name) | splitCsv
+    | branch{it ->
         link: it[5].toString() == "Link"
             return(tuple(it[0],it[1],it[2],it[3]))
         sample: true
             return(tuple(it[0],it[1],it[2],it[3],it[4]))
     }
 
-    subset_folder_1 = SUBSET_READS(subset_guide.sample,output_directory,pg_name)
-    subset_folder_2 = LINK_READS(subset_guide.link,output_directory,pg_name)
+    subset_folder_1 = SUBSET_READS(subset_guide.sample,pangnome_directory,pg_name)
+    subset_folder_2 = LINK_READS(subset_guide.link,pangnome_directory,pg_name)
 
     subset_folder = subset_folder_1
     .concat(subset_folder_2)
@@ -87,13 +53,9 @@ workflow makePangenome{
     | flatten
     | first
     
-    ray_assembly = ASSEMBLE_PANGENOME(subset_folder,output_directory,pg_name)
+    ray_assembly = ASSEMBLE_PANGENOME(subset_folder,pangnome_directory,pg_name)
 
-    pangenome_info = PROCESS_RAY(ray_assembly,output_directory,pg_name) 
-    | splitCsv
-    | collect
-    | flatten
-    | collate(2)
+    return_pangenome = PROCESS_RAY(ray_assembly,pangnome_directory,pg_name) | splitCsv | collect | flatten | collate(2)
 }
 
 process FETCH_PG_READS{
@@ -117,17 +79,22 @@ process FETCH_PG_READS{
     def pangenome_directory = file("${output_directory}/${pg_name}")
     def pangenome_prep_directory = file("${pangenome_directory}/Prep_${pg_name}")
     def pangenome_subset_directory = file("${pangenome_prep_directory}/Subset_Reads")
-
     def group_file = file("${pangenome_prep_directory}/Read_Groups.csv")
+    
+    def validation_directory = file("${pangenome_directory}/Validation")
+    def validation_reads_directory = file("${validation_directory}/Reads")
 
-    def full_out = file("${output_directory}")
-    def full_read = file("${read_directory}")
+    def delete_cmd = (params.overwrite) ? "rm -rf $pangenome_directory" : ":"
+
     """
-    mkdir -p $full_out &&
+    mkdir -p $output_directory &&
+    $delete_cmd &&
     mkdir $pangenome_directory &&
     mkdir $pangenome_prep_directory &&
     mkdir $pangenome_subset_directory &&
-    python ${fetchPGScript} -d ${full_read} -e $params.pg_ext -f $params.pg_forward -r $params.pg_reverse -o $group_file 
+    mkdir $validation_directory &&
+    mkdir $validation_reads_directory &&
+    python ${fetchPGScript} --read_dir $read_directory --val_dir $validation_reads_directory --ext $params.pg_ext --forward $params.pg_forward --reverse $params.pg_reverse --group $group_file 
     """
 }
 
@@ -186,6 +153,8 @@ process CALCULATE_SUBSETS{
     def pangenome_prep_directory = file("${pangenome_directory}/Prep_${pg_name}")
     def pangenome_subset_directory = file("${pangenome_prep_directory}/Subset_Reads")
     def group_file = file("${pangenome_prep_directory}/Read_Groups.csv")
+
+    def size = params.size as Integer
     
     """
     python ${calculate_sub_script} -b ${base_count_file} -g ${group_file} -s ${size} -c ${coverage} -o ${pangenome_subset_directory} -p ${out_prop}
@@ -341,19 +310,17 @@ process PROCESS_RAY{
 }
 
 ///// Get genome based on FASTA, and index if necessary /////
-workflow indexGenome{
+workflow prepareGenome{
 
     take:
-    fasta_path
+    fasta_file
 
     emit:
     return_pangenome
     
     
     main:
-    
-    def fasta_file = file(fasta_path)
-    
+        
     if (!fasta_file.isFile()) {
         error "Assembly provided by --fasta (${fasta_file}) does not exist..."
     }
@@ -376,7 +343,7 @@ workflow indexGenome{
     existing = branched.already_indexed
     .map { tuple(it[2], it[3]) }
 
-    return_pangenome = reindexed.concat(existing).collect()
+    return_pangenome = reindexed.concat(existing).collect().flatten().collate(2)
 }
 
 process CHECK_INDEX{
@@ -433,11 +400,11 @@ process INDEX_FASTA{
     def sam_idx = file("${fasta_dir}/${fasta_name}.fai")
 
     def bbmap_cmd = bbmap_ref.exists()
-    ? ""
+    ? ":"
     : "bbmap.sh ref=${fasta_file}"
 
     def sam_cmd = sam_idx.exists()
-    ? ""
+    ? ":"
     : "samtools faidx ${fasta_file}"
 
     """
@@ -449,16 +416,18 @@ process INDEX_FASTA{
 }
 
 ///// Get genome based on pg_name (Look in SNPRS_Pangenomes) /////
-workflow checkGenome{
+workflow checkSNPRSGenome{
 
     take:
-    genome_path
+    pangenome_directory
+    pg_name
 
     emit:
     pangenome_info
 
     main:
-    def genome_dir = file("${genome_path}")
+    
+    genome_dir = file("${pangenome_directory}/${pg_name}")
 
     if(genome_dir.isDirectory()){
         pangenome_info = CHECK_GENOME(genome_dir) | splitCsv()
@@ -516,11 +485,4 @@ process CHECK_GENOME{
 
     echo -n "\$FASTA_NAME,\$FASTA"
     """
-}
-
-// Base workflow if running separate. Must provide --pg_reads and --size
-workflow{
-    if (params.pg_out && params.pg_name && params.pg_reads) {
-        pangenome_data = makePangenome(params.pg_out, params.pg_name,params.pg_reads)
-    }
 }

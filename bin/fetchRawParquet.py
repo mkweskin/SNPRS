@@ -3,8 +3,6 @@
 import os
 import sys
 import argparse
-import pandas as pd
-import numpy as np
 from pathlib import Path
 
 # Parse args
@@ -23,7 +21,7 @@ elif os.path.isfile(raw_parquet_data):
         raw_parquet_files = [os.path.abspath(line.strip()) for line in f if line.strip() and line.strip().endswith("_Raw.parquet")]
 
 if len(raw_parquet_files) == 0:
-    sys.exit(f"No BAM files detected via {raw_parquet_data}")
+    sys.exit(f"No *_Raw.parquet files detected via {raw_parquet_data}")
 
 raw_parquet_tuples = [(os.path.splitext(os.path.basename(raw_parquet_file))[0], raw_parquet_file) for raw_parquet_file in raw_parquet_files]
 
