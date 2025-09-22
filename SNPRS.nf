@@ -191,7 +191,7 @@ workflow{
         // Get called bases
         existing_called_base_data = (params.called_bases && !params.validate) ? fetchCalledBases(params.called_bases) : Channel.empty()
         new_called_base_data = (pangenome_info && raw_parquet_data) ? callBases(raw_parquet_data,pangenome_info,current_mapping_directory) : Channel.empty()
-        called_bases_data = existing_called_base_data.concat(new_called_base_data).collect()
+        called_bases_data = existing_called_base_data.concat(new_called_base_data) | collect  | flatten | collate(2)
 
         // Join bases
         joined_data = (pangenome_info && called_bases_data) ? joinCalledBases(called_bases_data,pangenome_info,current_joined_directory,join_id) : Channel.empty()

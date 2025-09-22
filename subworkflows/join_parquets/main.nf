@@ -16,12 +16,36 @@ workflow joinCalledBases{
 
     main:
     
-    head_output_dir = file(output_dir)
+    head_output_dir = CHECK_OUTPUT_DIR(output_dir,join_id) | splitCsv | collect | flatten | collate(2) | first
+    prep_join = pangenome_info.combine(head_output_dir)
+    combined = called_bases_data.combine(prep_join)
     
-    prep_join = pangenome_info.map{it -> tuple(it[0],it[1],"${head_output_dir}","${join_id}")}
-    called_base_file = SAVE_CALLED_BASE_FILE(called_bases_data,prep_join) | first
+    called_base_file = SAVE_CALLED_BASE_FILE(combined) | first
+
 
     joined_data = JOIN_CALLED_BASES(called_base_file,prep_join) | splitCsv
+}
+
+process CHECK_OUTPUT_DIR{
+    
+    executor = "local"
+    cpus 1
+
+    input:
+    val(output_dir)
+    val(join_id)
+
+    output:
+    stdout
+
+    script:
+    def join_dir = file("${output_dir}/${join_id}")
+    def delete_cmd = (params.overwrite) ? "rm -rf $join_dir" : ":"
+
+    """
+    $delete_cmd &&
+    echo -n $output_dir,$join_id
+    """
 }
 
 process SAVE_CALLED_BASE_FILE{
@@ -30,8 +54,7 @@ process SAVE_CALLED_BASE_FILE{
     cpus 1
 
     input:
-    tuple val(sample_id),val(called_base_path)
-    tuple val(pg_name),val(pg_fasta),val(head_output_dir),val(join_id)
+    tuple val(sample_id),val(called_base_path),val(pg_name),val(pg_fasta),val(head_output_dir),val(join_id)
 
     output:
     stdout
@@ -44,10 +67,7 @@ process SAVE_CALLED_BASE_FILE{
         error "Running in validation mode without --overwrite set, but ${join_dir} exists..."
     }
 
-    def delete_cmd = (params.overwrite) ? "rm -rf $join_dir" : ":"
-
     """
-    $delete_cmd &&
     mkdir -p $join_dir &&
     echo "$called_base_path" >> $called_base_file
     echo -n $called_base_file 
