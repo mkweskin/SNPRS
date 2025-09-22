@@ -102,6 +102,15 @@ if(!joined_directory.isDirectory()){
     tab_log("Found joining directory: ${joined_directory}...")
 }
 
+// Join ID
+if(params.validate){
+    join_id = "Validation"
+} else if(!params.join_id){
+    join_id = "SNPRS_${timestamp}"
+} else{
+    join_id = "${params.join_id}"
+}
+
 // Check for validation mode
 if(params.validate){    
     tab_log("Running in validation mode, pangenome reads will be mapped back onto the pangenome and joined into an alignment")
@@ -131,6 +140,9 @@ include {fetchRawParquet} from "./subworkflows/convert_bam/main.nf"
 include {callBases} from "./subworkflows/call_bases/main.nf"
 include {fetchCalledBases} from "./subworkflows/call_bases/main.nf"
 
+include {joinCalledBases} from "./subworkflows/join_parquets/main.nf"
+include {fetchJoin} from "./subworkflows/join_parquets/main.nf"
+
 workflow{
 
     // Assemble pangenome from reads
@@ -155,43 +167,40 @@ workflow{
         pangenome_info = Channel.empty()
     }
 
-    // Get BAM files    
-    existing_bam_data = (params.bam_files && !params.validate) ? fetchBAM(params.bam_files) : Channel.empty()
+    if(!params.joined){
 
-    if(params.validate){
-        new_bam_data = (pangenome_info) ? mapReads(validation_read_directory,pangenome_info,current_mapping_directory) : Channel.empty()
-    } else if(params.map_reads){
-        mapping_read_data = (params.map_reads) ? file(params.map_reads) : ""
-        new_bam_data = (pangenome_info && params.map_reads) ? mapReads(mapping_read_data,pangenome_info,current_mapping_directory) : Channel.empty()
-    } else{
-        new_bam_data = Channel.empty()
+        // Get BAM files    
+        existing_bam_data = (params.bam_files && !params.validate) ? fetchBAM(params.bam_files) : Channel.empty()
+
+        if(params.validate){
+            new_bam_data = (pangenome_info) ? mapReads(validation_read_directory,pangenome_info,current_mapping_directory) : Channel.empty()
+        } else if(params.map_reads){
+            mapping_read_data = (params.map_reads) ? file(params.map_reads) : ""
+            new_bam_data = (pangenome_info && params.map_reads) ? mapReads(mapping_read_data,pangenome_info,current_mapping_directory) : Channel.empty()
+        } else{
+            new_bam_data = Channel.empty()
+        }
+
+        bam_data = existing_bam_data.concat(new_bam_data)
+
+        // Get raw parquets
+        existing_parquet_data = (params.raw_parquet && !params.validate) ? fetchRawParquet(params.raw_parquet) : Channel.empty()
+        new_parquet_data = (pangenome_info && bam_data) ? bamToParquet(bam_data,pangenome_info,current_mapping_directory) : Channel.empty()
+        raw_parquet_data = existing_parquet_data.concat(new_parquet_data)
+
+        // Get called bases
+        existing_called_base_data = (params.called_bases && !params.validate) ? fetchCalledBases(params.called_bases) : Channel.empty()
+        new_called_base_data = (pangenome_info && raw_parquet_data) ? callBases(raw_parquet_data,pangenome_info,current_mapping_directory) : Channel.empty()
+        called_bases_data = existing_called_base_data.concat(new_called_base_data).collect()
+
+        // Join bases
+        joined_data = (pangenome_info && called_bases_data) ? joinCalledBases(called_bases_data,pangenome_info,current_joined_directory,join_id) : Channel.empty()
+    } 
+    
+    else{
+        // Fetch already joined bases
+        join_path = file("${params.joined}")
+        joined_data = (pangenome_info && params.joined) ? fetchJoin(join_path) : Channel.empty()
     }
 
-    bam_data = existing_bam_data.concat(new_bam_data)
-
-    // Get raw parquets
-    existing_parquet_data = (params.raw_parquet && !params.validate) ? fetchRawParquet(params.raw_parquet) : Channel.empty()
-    new_parquet_data = (pangenome_info && bam_data) ? bamToParquet(bam_data,pangenome_info,current_mapping_directory) : Channel.empty()
-    raw_parquet_data = existing_parquet_data.concat(new_parquet_data)
-
-    // Get called bases
-    existing_called_base_data = (params.called_bases && !params.validate) ? fetchCalledBases(params.called_bases) : Channel.empty()
-    new_called_base_data = (pangenome_info && raw_parquet_data) ? callBases(raw_parquet_data,pangenome_info,current_mapping_directory) : Channel.empty()
-    called_bases_data = existing_called_base_data.concat(new_called_base_data)
-    
-    called_bases_data.view()
 }
-
-
-
-
-
-
-/*
-    // Joining?
-    //if(params.join){
-    //    new_joined_data = (called_bases_data) ? joinParquets(called_bases_data) : Channel.empty()
-    //}
-}   
-
-*/
