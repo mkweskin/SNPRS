@@ -22,6 +22,9 @@ process BAM_TO_PARQUET{
     
     cpus cpu
 
+    tag "BAM2PQ_${sample_id}"
+
+
     input:
     tuple val(sample_id),val(sample_bam)
     tuple val(pg_name),val(fasta_path)

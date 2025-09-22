@@ -77,6 +77,11 @@ process FETCH_PG_READS{
     def fetchPGScript = file("${projectDir}/bin/fetchPangenomeReads.py")
     
     def pangenome_directory = file("${output_directory}/${pg_name}")
+    
+    if(!params.overwrite && pangenome_directory.isDirectory()){
+        error "${pangeneome_directory} exists and --overwrite is not set..."
+    }
+
     def pangenome_prep_directory = file("${pangenome_directory}/Prep_${pg_name}")
     def pangenome_subset_directory = file("${pangenome_prep_directory}/Subset_Reads")
     def group_file = file("${pangenome_prep_directory}/Read_Groups.csv")

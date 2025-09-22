@@ -61,11 +61,20 @@ process FETCH_MAP_READS{
     }
 
     def existing_ref = file("${mapping_directory}/ref")
+    
     def bam_dir = file ("${mapping_directory}/BAMs")
     def parquet_dir = file ("${mapping_directory}/Raw_Parquet")
     def base_call_dir = file ("${mapping_directory}/Base_Calls")
 
+    if(params.validate && !params.overwrite && file(mapping_directory).isDirectory()){
+        error "Running in validation mode without --overwrite set, but ${mapping_directory} exists..."
+    }
+
+    // Clear validation folders if re-running
+    delete_cmd = (params.overwrite && params.validate) ? "rm -rf $mapping_directory $bam_dir $parquet_dir $base_call_dir" : ":"
+
     """
+    $delete_cmd &&
     mkdir -p $mapping_directory &&
     mkdir -p $bam_dir &&
     mkdir -p $parquet_dir &&
@@ -83,6 +92,9 @@ process FETCH_MAP_READS{
 process MAP_READS{
 
     cpus cpu
+
+    tag "Map_${sample_id}"
+
 
     input:
     tuple val(sample_id),val(forward),val(reverse)

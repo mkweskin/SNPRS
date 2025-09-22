@@ -125,8 +125,8 @@ include {checkSNPRSGenome} from "./subworkflows/prepare_genome/main.nf"
 include {mapReads} from "./subworkflows/mapping/main.nf"
 include {fetchBAM} from "./subworkflows/mapping/main.nf"
 
-include {fetchRawParquet} from "./subworkflows/convert_bam/main.nf"
 include {bamToParquet} from "./subworkflows/convert_bam/main.nf"
+include {fetchRawParquet} from "./subworkflows/convert_bam/main.nf"
 
 include {callBases} from "./subworkflows/call_bases/main.nf"
 include {fetchCalledBases} from "./subworkflows/call_bases/main.nf"

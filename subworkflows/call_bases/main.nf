@@ -23,6 +23,9 @@ process CALL_BASES{
     
     cpus cpu
 
+    tag "CallBases_${sample_id}"
+
+
     input:
     tuple val(sample_id),val(sample_parquet)
     tuple val(pg_name),val(fasta_path)
