@@ -18,7 +18,8 @@ def classify_row(row):
         "heterozygous": 0,
         "singleton": 0,
         "nonsingleton": 0,
-        "invalid":0
+        "invalid":0,
+        "gap":0
     }
     
     nonsingleton_alleles = set()
@@ -40,11 +41,15 @@ def classify_row(row):
         elif base in singleton_bases:
             codes.append(2)
             counts["singleton"] += 1
+            if base == "-":
+                counts["gap"] += 1
         
         else:
             codes.append(1)
             counts["nonsingleton"] += 1
             nonsingleton_alleles.add(base)
+            if base == "-":
+                counts["gap"] += 1
     
     missing_count = counts["missing"] + counts['invalid']
     singleton_count = counts["singleton"]

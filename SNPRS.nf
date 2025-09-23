@@ -167,6 +167,7 @@ workflow{
         pangenome_info = Channel.empty()
     }
 
+    // Map reads, call bases, and join files
     if(!params.joined){
 
         // Get BAM files    
