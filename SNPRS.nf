@@ -152,6 +152,8 @@ include {fetchCalledBases} from "./subworkflows/call_bases/main.nf"
 include {joinCalledBases} from "./subworkflows/join_parquets/main.nf"
 include {fetchJoin} from "./subworkflows/join_parquets/main.nf"
 
+include {filterJoined} from "./subworkflows/filter_joined/main.nf"
+
 workflow{
 
     // Assemble pangenome from reads
@@ -212,4 +214,10 @@ workflow{
         join_path = file("${params.joined}")
         joined_data = (pangenome_info && params.joined) ? fetchJoin(join_path) : Channel.empty()
     }
+
+    if(params.filter || params.validate){
+        filtered_data = filterJoined(pangenome_info,joined_data,filter_id)
+    }
+
+
 }

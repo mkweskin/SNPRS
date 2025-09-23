@@ -232,6 +232,8 @@ remove_singletons = args.no_singletons
 if not args.missing:
     missing_mode = "estimate"
     max_missing = np.nan
+elif int(args.missing) == 0:
+    max_missing = 0
 elif float(args.missing) < 1:
     missing_mode = "prop"
     min_present = int(float(args.missing) * sample_count)
@@ -271,11 +273,13 @@ save_filtered_parquet(scaffold_file,new_scaffold_file,pass_missing_file)
 save_filtered_parquet(code_file,new_code_file,pass_missing_file)
 save_filtered_parquet(site_file,new_site_file,pass_missing_file)
 save_filtered_parquet(base_file,new_base_file,pass_missing_file)
+
 # Links for now
 os.symlink(missing_file, new_missing_file)
 os.symlink(called_bases_file, new_called_bases_file)
 
 # endregion
+
 # region 03: Save Alignment
 if args.make_alignment:
     make_alignment(base_file,pass_missing_file,output_fasta)
