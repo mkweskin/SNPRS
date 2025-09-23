@@ -21,3 +21,5 @@ dependencies:
   - pyarrow
   - bcftools
   - pysam
+  - fasttree
+  - iqtree

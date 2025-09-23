@@ -111,6 +111,15 @@ if(params.validate){
     join_id = "${params.join_id}"
 }
 
+// Filter ID
+if(params.validate){
+    filter_id = "Filter_Validation"
+} else if(!params.filter_id){
+    join_id = "Filter_SNPRS_${timestamp}"
+} else{
+    filter_id = "${params.filter_id}"
+}
+
 // Check for validation mode
 if(params.validate){    
     tab_log("Running in validation mode, pangenome reads will be mapped back onto the pangenome and joined into an alignment")
@@ -203,5 +212,4 @@ workflow{
         join_path = file("${params.joined}")
         joined_data = (pangenome_info && params.joined) ? fetchJoin(join_path) : Channel.empty()
     }
-
 }
