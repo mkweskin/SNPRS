@@ -22,4 +22,4 @@ dependencies:
   - bcftools
   - pysam
   - fasttree
-  - iqtree
+  - iqtree=2.3.6

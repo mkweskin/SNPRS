@@ -155,6 +155,8 @@ include {fetchJoin} from "./subworkflows/join_parquets/main.nf"
 include {filterJoined} from "./subworkflows/filter_joined/main.nf"
 include {fetchFiltered} from "./subworkflows/filter_joined/main.nf"
 
+include {generateTree} from "./subworkflows/generate_tree/main.nf"
+
 workflow{
 
     // Assemble pangenome from reads
@@ -226,4 +228,11 @@ workflow{
         filtered_path = file("${params.filtered}")
         filtered_data = (pangenome_info && params.filtered) ? fetchFiltered(filtered_path) : Channel.empty()
     }
+
+    // Generate tree from filtered data if requested
+    if((params.tree || params.validate) && filtered_data){
+        tree_data = generateTree(filtered_data)
+    }
 }
+
+
