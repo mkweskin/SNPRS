@@ -19,7 +19,7 @@ workflow filterJoined{
     .map{it-> tuple(it[0],it[1],it[2],it[3],filter_id)}
     | FILTER_JOINED
     | splitCsv
-    | collect | flatten | collate(2)
+    | collect | flatten | collate(4)
 }
 
 process FILTER_JOINED{
@@ -38,6 +38,8 @@ process FILTER_JOINED{
     def ref_fasta = file("${pg_fasta}")
     def joined_directory = file("${join_directory}")
     def filter_directory = file("${joined_directory}/${filter_id}")
+    def output_fasta = file("${filter_directory}/${filter_id}_aln.fasta")
+    def output_json = file("${filter_directory}/${filter_id}.json")
 
     def site_types = (params.site_types) ? "${params.site_types}" : "btqp"
 
@@ -52,7 +54,59 @@ process FILTER_JOINED{
     """
     $delete_cmd &&
     mkdir $filter_directory &&
-    python $filter_script --joined $joined_directory --fasta $ref_fasta --out $filter_directory --name $filter_id --alignment --types $site_types $gap_arg $het_arg $invalid_arg $nosing_arg $missing_arg &&
-    echo -n "${filter_id},${filter_directory}"
+    python $filter_script --joined $joined_directory --fasta $ref_fasta --out $filter_directory --name $filter_id --types $site_types $gap_arg $het_arg $invalid_arg $nosing_arg $missing_arg &&
+    echo -n "${filter_id},${filter_directory},${output_json},${output_fasta}"
+    """
+}
+
+
+workflow fetchFiltered{
+
+    take:
+    filtered_dir
+
+    emit:
+    filtered_info
+    
+    main:
+    filtered_info = FETCH_FILTERED(filtered_dir) | splitCsv()
+}
+
+process FETCH_FILTERED{
+    
+    executor = "local"
+    cpus 1
+
+    input:
+    val(filtered_dir)
+
+    output:
+    stdout
+
+    script:
+
+    def filtered_directory = file(filtered_dir)
+
+    if ( !filtered_directory.isDirectory() ) {
+        error "${filtered_directory} does not exist..."
+    }
+
+    def filter_id = filtered_directory.name
+    def base_file = file("${filtered_directory}/${filter_id}_Bases.parquet")
+    def code_file = file("${filtered_directory}/${filter_id}_Codes.parquet")
+    def scaffold_file = file("${filtered_directory}/${filter_id}_Scaffold.parquet")
+    def site_file = file("${filtered_directory}/${filter_id}_Sites.parquet")
+    def output_fasta = file("${filtered_directory}/${filter_id}_aln.fasta")
+    def output_json = file("${filtered_directory}/${filter_id}.json")
+    
+    """
+    for f in "${base_file}" "${code_file}" "${scaffold_file}" "${site_file}" "${output_fasta}" "${output_json}" ; do
+        if [ ! -s "\$f" ]; then
+            echo "ERROR: Missing expected file: \$f" >&2
+            exit 1
+        fi
+    done
+
+    echo -n "${filter_id},${filtered_directory},${output_json},${output_fasta}"  
     """
 }

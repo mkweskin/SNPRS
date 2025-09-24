@@ -30,7 +30,6 @@ def parse_args():
     parser.add_argument("--fasta", dest="ref_fasta", type=str, required=True,help="Path to associated reference assembly")
     parser.add_argument("--out", dest="output_directory", type=str, required=True,help="Path to store output files and temp directory")
     parser.add_argument("--name", dest="filter_name", type=str, required=True,help="Output prefix [Default: <ANALYSIS_NAME>_{timestamp}]")
-    parser.add_argument("--alignment", dest="make_alignment", action="store_true",help="Save a FASTA alignment of the final sites in the ouptut directory [Default: FALSE]")
     
     # Filter args
     parser.add_argument("--types", dest="site_types", type=str, default='btqp',help="String of single letter codes for sites requested: F/f: Fixed; B/b: Biallelic; T/t: Triallelic; Q/q: Quadallelic; P/p: Pentallellic; S/s: Singleton-only")
@@ -193,10 +192,22 @@ base_file = os.path.join(joined_directory, f"{join_id}_Bases.parquet")
 missing_file = os.path.join(joined_directory, f"{join_id}_Missing.tsv")
 called_bases_file = os.path.join(joined_directory, f"{join_id}_Called_Bases.txt")
 
-# Get sample count
+# Get sample count + IDs
+sample_ids = []
+sample_count = 0
+
 with open(called_bases_file, "r", encoding="utf-8", errors="ignore") as f:
-    sample_count = sum(1 for _ in f)
-    
+    for line in f:
+        line = line.strip()
+        if not line:
+            continue
+        sample_count += 1
+        sample_id = os.path.basename(line).replace("_Called.parquet","")
+        sample_ids.append(sample_id)
+
+if sample_count < 2:
+    sys.exit(f"Fewer than 2 *_Called.parquet files provided in {called_bases_file}")
+
 # Filter prefix
 filter_id = str(args.filter_name)
 output_fasta = os.path.join(output_directory,f"{filter_id}_aln.fasta")
@@ -281,7 +292,29 @@ os.symlink(called_bases_file, new_called_bases_file)
 # endregion
 
 # region 03: Save Alignment
-if args.make_alignment:
-    make_alignment(base_file,pass_missing_file,output_fasta)
+make_alignment(base_file,pass_missing_file,output_fasta)
+
+# endregion
+
+# region 04: Save Summary
+filtering_info = {
+    "Joined_Directory":joined_directory,
+    "Ref_FASTA": ref_fasta,
+    "Sample_IDs":sample_ids,
+    "Sample_Count":str(sample_count),
+    "Output_Directory":output_directory,
+    "Site_Types":valid_site_types,
+    "Gaps_Included":str(include_gaps),
+    "Hets_Included":str(include_hets),
+    "Invalid_Included":str(include_invalid),
+    "Singletons_Removed":str(remove_singletons),
+    "Missing_Arg":str(args.missing),
+    "Max_Missing":str(max_missing),
+    "Final_Site_Count":str(pass_missing_count)
+}
+
+output_json = os.path.join(output_directory, f"{filter_id}.json")
+with open(output_json, "w", encoding="utf-8") as f:
+    json.dump(filtering_info, f, indent=4)
 
 # endregion
