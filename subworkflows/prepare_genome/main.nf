@@ -79,7 +79,7 @@ process FETCH_PG_READS{
     def pangenome_directory = file("${output_directory}/${pg_name}")
     
     if(!params.overwrite && pangenome_directory.isDirectory()){
-        error "${pangeneome_directory} exists and --overwrite is not set..."
+        error "${pangenome_directory} exists and --overwrite is not set..."
     }
 
     def pangenome_prep_directory = file("${pangenome_directory}/Prep_${pg_name}")
@@ -261,8 +261,7 @@ process ASSEMBLE_PANGENOME {
     tag "Assemble_Pangenome"
 
     executor = 'slurm'
-    clusterOptions = "--nodes=${node} --ntasks-per-node=${ray_cpu}"
-
+    clusterOptions = "--nodes=${node} --ntasks-per-node=${ray_cpu} --exclusive"
     input:
     val(subset_folder)
     val(output_directory)
