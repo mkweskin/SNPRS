@@ -8,16 +8,16 @@ import numpy as np
 from pathlib import Path
 
 def pair_reads(read_dir, read_filetype, forward_suffix, reverse_suffix):
-    
     read_dir = Path(read_dir)
     files = [f for f in read_dir.iterdir() if f.is_file() and f.name.endswith(read_filetype)]
     
     pe_samples = {}
     se_samples = {}
-    used_files = []
+    used_files = set()
     
     for f in files:
         stem = str(f)
+        
         if stem in used_files:
             continue
         
@@ -26,24 +26,28 @@ def pair_reads(read_dir, read_filetype, forward_suffix, reverse_suffix):
             sample_id = os.path.basename(sample_base)
             forward = f"{sample_base}{forward_suffix}" 
             reverse = f"{sample_base}{reverse_suffix}" 
+            
             if os.path.exists(reverse):
-                pe_samples[sample_id] = (os.path.abspath(forward),os.path.abspath(reverse))
-                used_files.append(forward)
-                used_files.append(reverse)
+                pe_samples[sample_id] = (os.path.abspath(forward), os.path.abspath(reverse))
+                used_files.update([forward, reverse])
             else:
-                se_samples[sample_id] = (os.path.abspath(forward),None)
-                used_files.append(forward)
+                se_samples[sample_id] = (os.path.abspath(forward), None)
+                used_files.add(forward)
 
         elif stem.endswith(reverse_suffix):
             sample_base = stem[:-len(reverse_suffix)]
             sample_id = os.path.basename(sample_base)
-            forward = f"{sample_base}{reverse_suffix}"
-            reverse = f"{sample_base}{reverse_suffix}"
-            se_samples[sample_id] = (os.path.abspath(reverse),None)
+            forward = f"{sample_base}{forward_suffix}"
+            
+            if not os.path.exists(forward):
+                se_samples[sample_id] = (os.path.abspath(stem), None)
+                used_files.add(stem)
+
         else:
             sample_base = stem[:-len(read_filetype)]
             sample_id = os.path.basename(sample_base)
-            se_samples[sample_id] = (os.path.abspath(stem),None)
+            se_samples[sample_id] = (os.path.abspath(stem), None)
+            used_files.add(stem)
     
     paired_reads = []
     for sample_id, (fwd, rev) in pe_samples.items():
@@ -51,7 +55,9 @@ def pair_reads(read_dir, read_filetype, forward_suffix, reverse_suffix):
     
     for sample_id, (fwd, rev) in se_samples.items():
         paired_reads.append((sample_id, fwd, rev))
-    return pd.DataFrame(paired_reads,columns = ['Sample_ID','Forward','Reverse'])
+    
+    return pd.DataFrame(paired_reads, columns=['Sample_ID','Forward','Reverse'])
+
 
 # Parse args
 
@@ -85,7 +91,6 @@ for dir in read_dirs:
     read_data.append(pair_reads(dir,read_filetype,forward_suffix,reverse_suffix))
 
 read_df = pd.concat(read_data).reset_index(drop=True)
-
 if not read_df["Sample_ID"].is_unique:
     seen = {}
     new_ids = []
@@ -95,7 +100,7 @@ if not read_df["Sample_ID"].is_unique:
             new_ids.append(sid)
         else:
             seen[sid] += 1
-            new_ids.append(f"{sid}_{seen[sid]}")
+            new_ids.append(f"{sid}_Dup_{seen[sid]}")
     read_df["Sample_ID"] = new_ids
 
 read_df.to_csv(sys.stdout, sep=",", index=False, header=False)
