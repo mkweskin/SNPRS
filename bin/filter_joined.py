@@ -317,4 +317,6 @@ output_json = os.path.join(output_directory, f"{filter_id}.json")
 with open(output_json, "w", encoding="utf-8") as f:
     json.dump(filtering_info, f, indent=4)
 
+shutil.rmtree(temp_directory)
+
 # endregion

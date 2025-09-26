@@ -106,7 +106,7 @@ if(!joined_directory.isDirectory()){
 if(params.validate){
     join_id = "Validation"
 } else if(!params.join_id){
-    join_id = "SNPRS_${timestamp}"
+    join_id = "Joined_SNPRS_${timestamp}"
 } else{
     join_id = "${params.join_id}"
 }
@@ -118,6 +118,20 @@ if(params.validate){
     filter_id = "Filter_SNPRS_${timestamp}"
 } else{
     filter_id = "${params.filter_id}"
+}
+
+// Fixed ID
+if(!params.fixed_id){
+    fixed_id = "Fixed_SNPRS_${timestamp}"
+} else{
+    fixed_id = "${params.fixed_id}"
+}
+
+// Refine ID
+if(!params.refine_id){
+    refine_id = "Refined_SNPRS_${timestamp}"
+} else{
+    refine_id = "${params.refine_id}"
 }
 
 // Check for validation mode
