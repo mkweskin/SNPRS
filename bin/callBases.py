@@ -88,9 +88,6 @@ og_metadata = {k.decode("utf-8"): v.decode("utf-8") for k, v in metadata_bytes.i
 new_metadata = og_metadata.copy()
 sample_name = og_metadata['sample_id']
 
-# Add parquet file
-new_metadata['sample_parquet'] = sample_parquet
-
 # Add QC parameters
 new_metadata["min_read_coverage"] = str(read_cov)
 new_metadata["min_allele_coverage"] = str(allele_cov)
