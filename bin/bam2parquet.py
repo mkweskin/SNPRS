@@ -35,69 +35,17 @@ def parse_args():
     
     return parser.parse_args()
 
-def process_indels(s):
-    
-    # Remove deletions (already stored as *)
-    s = re.sub(r"-\d+", "", s)
-    
-    ins_counter = Counter()
-    ins_count = fr"\+(\d+)"
-    while True:
-        match = re.search(ins_count, s)
-        if not match:
-            break
-
-        length = int(match.group(1))
-        start = match.start()
-        end = match.end() + length
-        sequence = s[match.end():end].upper()
-
-        indel_str = f"+{length}{sequence}"
-        ins_counter[indel_str] += 1
-
-        # Remove the matched insertion from s
-        s = s[:start] + s[end:]
-        
-    return s, ins_counter
-
-def clean_sample_bases(row):
-    
-    sample_bases = row["Sample_Bases"]
-    ref_base = row["Ref_Base"]
-    coverage = row["Coverage"]
-    scaffold = row["Scaffold"]
-    position = row["Position"]
-    
-    # Indels (+N/-N)
-    s,ins_counter = process_indels(sample_bases)
-
-    # Replacements
-    s = s.replace("*", "-").replace('.', ref_base).replace(',', ref_base).upper()
-
-    assert coverage == len(s), (
-        "\n"
-        f"Contig: {scaffold}\nPosition: {position}\n"
-        f"Expected coverage: {coverage}\nActual cleaned base count: {len(s)}\n"
-        f"Cleaned: {s}\n"
-    )
-    return s,ins_counter
-
-def compute_base_frequencies(base_str):
-    counter = Counter(base_str)
-    total = sum(counter.values())
-    return {base: count / total for base, count in counter.items()}
-
 def process_chunk(path, start, end):
     
     pileup_schema = {
-    "Scaffold":pl.Utf8,
-    "Position":pl.Int64,
-    "Ref_Base":pl.Utf8,
-    "Coverage":pl.Int64,
-    "Sample_Bases":pl.Utf8,
-    "Code":pl.Utf8
+        "Scaffold": pl.Utf8,
+        "Position": pl.Int64,
+        "Ref_Base": pl.Utf8,
+        "Coverage": pl.Int64,
+        "Sample_Bases": pl.Utf8,
+        "Code": pl.Utf8
     }
-        
+
     chunk_df = pl.read_csv(
         path,
         separator="\t",
@@ -108,27 +56,67 @@ def process_chunk(path, start, end):
     ).drop("Code").filter(pl.col("Coverage") >= 1)
 
     records = []
+
     for row in chunk_df.iter_rows(named=True):
-        cleaned, ins_counter = clean_sample_bases(row)
-        if cleaned:
-            depth = len(cleaned)
-            freqs = compute_base_frequencies(cleaned)
-            indel_freqs = {indel: count / depth for indel, count in ins_counter.items()}
-            all_freqs = freqs.copy()
-            all_freqs.update(indel_freqs)
+        sample_bases = row["Sample_Bases"]
+        ref_base = row["Ref_Base"]
+        scaffold = row["Scaffold"]
+        position = row["Position"]
 
-            base_record = {
-                "contig_id": row["Scaffold"].strip().split()[0],
-                "contig_position": row["Position"],
-                "depth": depth,
+        s = re.sub(r"-\d+", "", sample_bases)
+        ins_counter = Counter()
+        ins_pattern = r"\+(\d+)"
+        while True:
+            match = re.search(ins_pattern, s)
+            if not match:
+                break
+            length = int(match.group(1))
+            start_i = match.start()
+            end_i = match.end() + length
+            seq = s[match.end():end_i].upper()
+            indel_str = f"+{length}{seq}"
+            ins_counter[indel_str] += 1
+            s = s[:start_i] + s[end_i:]
+
+        s = s.replace("*", "-").replace(".", ref_base).replace(",", ref_base).upper()
+        depth = len(s)
+        freqs = {b: c / depth for b, c in Counter(s).items()}
+        indel_freqs = {indel: c / depth for indel, c in ins_counter.items()}
+        freqs.update(indel_freqs)
+
+        base_rec = {
+            "contig_id": scaffold.strip().split()[0],
+            "contig_position": position,
+            "depth": depth
+        }
+        
+        for base, freq in freqs.items():
+            rec = base_rec.copy()
+            rec.update({"base": base, "frequency": freq})
+            records.append(rec)
+
+    if records:
+        df = (pl.DataFrame(records)
+            .select(["contig_id", "contig_position", "base", "depth", "frequency"])
+            .cast({
+                "contig_id": pl.Utf8,
+                "contig_position": pl.Int64,
+                "base": pl.Utf8,
+                "depth": pl.Int64,
+                "frequency": pl.Float64,
+            })
+        )        
+        return df
+    else:
+        return pl.DataFrame(
+            schema={
+                "contig_id": pl.Utf8,
+                "contig_position": pl.Int64,
+                "base": pl.Utf8,
+                "depth": pl.Int64,
+                "frequency": pl.Float64,
             }
-            
-            for base, freq in all_freqs.items():
-                rec = base_record.copy()
-                rec.update({"base": base, "frequency": freq})
-                records.append(rec)
-
-    return records
+        )
 
 def bam_to_pileup(bam_file,fasta_file,mapq,baseq,adj_coef,duplicate):
         
@@ -175,14 +163,14 @@ def bam_to_pileup(bam_file,fasta_file,mapq,baseq,adj_coef,duplicate):
         jobs.append((tmp_path, start, end))
     
     # Process chunks
-    all_records = []
+    dfs = []
     with ProcessPoolExecutor() as executor:
         futures = [executor.submit(process_chunk, path, start, end) for path, start, end in jobs]
         for future in as_completed(futures):
-            all_records.extend(future.result())
+            dfs.append(future.result())
 
     os.remove(tmp_path)
-    return all_records, paired
+    return dfs, paired
                     
 #### MAIN ####
 args = parse_args()
@@ -222,9 +210,8 @@ baseq = args.baseq
 adj_coef = args.adj_coef
 
 all_records,paired = bam_to_pileup(bam_file,fasta_file,mapq,baseq,adj_coef,args.duplicate)
-
 out_df = (
-    pl.DataFrame(all_records)
+    pl.concat(all_records)
     .with_columns([
         pl.col("contig_id").replace_strict(contig_map, default=None).alias("contig_index")
     ])

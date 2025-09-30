@@ -1,9 +1,11 @@
 name: snprs_env
 
 channels:
-  - bioconda
   - conda-forge
+  - bioconda
   - defaults
+
+channel_priority: strict
 
 dependencies:
   - python=3.8.1
@@ -16,10 +18,11 @@ dependencies:
   - biopython
   - scikit-learn
   - matplotlib
+  - polars>=0.20.9
   - polars-u64-idx
   - pysam
   - pyarrow
   - bcftools
-  - pysam
   - fasttree
   - iqtree=2.3.6
+  - seqkit
