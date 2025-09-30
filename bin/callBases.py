@@ -12,11 +12,13 @@ import sys
 # 0: Fixed Base
 # 1: Fixed Deletion
 # 2: Fixed Insertion
-# 3: Het Insertion
-# 4: Valid Het
-# 5: Ploidy Fail
+# 3: Het with only ACTG
+# 4: Het with any -
+# 5: Het Insertion
+# 6: Ploidy Fail
 
 def parse_args():
+    
     parser = argparse.ArgumentParser(description="Based on min_depth, min_freq, and max_alleles, saves a parquet file with called bases.")
 
     parser.add_argument('-p',dest="sample_parquet", required=True, type=str, default=None, help="Path to sample parquet file")
@@ -47,20 +49,15 @@ def make_degen_dict():
         "ACGT": "N",
     }
 
-    bases = ["A", "C", "G", "T", "-"]
+    bases = ["A", "C", "G", "T"]
     degen_dict = {}
 
-    for n in range(1, 6):
+    for n in range(1, len(bases)+1):
         for combo in combinations(bases, n):
-            sorted_key = "".join(sorted(combo).copy()).replace("-", "").replace("N","")
+            sorted_key = "".join(sorted(combo))
 
-            if not sorted_key and "-" in combo:
-                code = "-"
-            else:
-                code = iupac_map.get(sorted_key, None)
-                if ("-" in combo) and (code != "N") :
-                    code = code.lower()
-            
+            code = iupac_map.get(sorted_key, None)
+
             for perm in permutations(combo):
                 key = "".join(perm)
                 degen_dict[key] = code
@@ -95,27 +92,24 @@ sample_name = og_metadata['sample_id']
 new_metadata['sample_parquet'] = sample_parquet
 
 # Add QC parameters
-new_metadata["QC_Parameters"] = json.dumps({
-    "min_read_coverage": read_cov,
-    "min_allele_coverage": allele_cov,
-    "min_allele_frequency": min_freq,
-    "ploidy": max_alleles
-})
+new_metadata["min_read_coverage"] = str(read_cov)
+new_metadata["min_allele_coverage"] = str(allele_cov)
+new_metadata["min_allele_frequency"] = str(min_freq)
+new_metadata["ploidy"] = str(max_alleles)
 
 # Add type map
 type_code_map = {
     0: "Fixed_Base",
     1: "Fixed_Deletion",
     2: "Fixed_Insertion",
-    3: "Het_Insertion",
-    4: "Valid_Het",
-    5: "Ploidy_Fail"
+    3: "Het_Base",
+    4: "Het_Deletion",
+    5: "Het_Insertion"
 }
 
-new_metadata["Type_Code_Map"] = json.dumps(type_code_map)
+new_metadata["Type_Code_Map"] = "0: Fixed_Base; 1: Fixed_Deletion; 2: Fixed_Insertion; 3: Het_Base; 4: Het_Deletion; 5: Het_Insertion"
 
-# Read in sample base data
-base_df = (
+base_df_lazy = (
     pl.read_parquet(sample_parquet).lazy()
     .select(["contig_index", "contig_position", "depth", "base", "frequency"])
     .with_columns([
@@ -137,20 +131,45 @@ base_df = (
         .otherwise(pl.lit("Pass"))
         .alias("status")
     )
-    .select([
-        "contig_index", "contig_position", "depth", "base", "frequency", "status"
-    ])
-    .collect()
 )
 
-deletion_df = (base_df
-               .filter(pl.col("status")=="Deletion"))
+ploidy_fail_positions = (
+    base_df_lazy
+    .filter(
+        (pl.col("status").is_in(["Pass", "Deletion"]))
+    )
+    .group_by(["contig_index", "contig_position"])
+    .agg(pl.len().alias("allele_count"))
+    .filter(pl.col("allele_count") > max_alleles)
+    .select(["contig_index", "contig_position"])
+)
 
-# Add status counts
+base_df = (
+    base_df_lazy.join(
+        ploidy_fail_positions.with_columns(pl.lit("Fail_Ploidy").alias("ploidy_status")),
+        on=["contig_index", "contig_position"],
+        how="left"
+    )
+    .with_columns(
+        pl.when(pl.col("ploidy_status").is_not_null())
+        .then(pl.col("ploidy_status"))
+        .otherwise(pl.col("status"))
+        .alias("status")
+    )
+    .drop("ploidy_status")
+).collect()
+
 status_counts = {
     "Fail_Depth": (
         base_df
         .filter(pl.col("status") == "Fail_Depth")
+        .select(["contig_index", "contig_position"])
+        .unique()
+        .height
+    ),
+    "Ploidy_Fail": (
+        base_df
+        .filter(pl.col("status") == "Ploidy_Fail")
         .select(["contig_index", "contig_position"])
         .unique()
         .height
@@ -165,21 +184,28 @@ status_counts = {
     }
 }
 
-new_metadata['Raw_Status_Counts'] = json.dumps(status_counts)
+status_counts_list = [f"{k}:{v}" for k, v in status_counts.items()]
+status_count_string = ", ".join(status_counts_list)
+new_metadata['Raw_Status_Counts'] = status_count_string
 
-# Get insertions
+# Process insertions
 insertion_df = (
     base_df
     .filter(pl.col("status") == "Insertion")
     .rename({"base": "final_base"})
-    .with_columns([
+    .with_columns(
         pl.when(pl.col("frequency") >= 1 - min_freq)
         .then(2)
-        .otherwise(3)
+        .otherwise(5)
         .alias("type")
-    ])
+    )
     .select(["contig_index", "contig_position", "final_base", "type"])
-)
+).cast({
+        "contig_index": pl.Int64,
+        "contig_position": pl.Int64,
+        "final_base": pl.Utf8,
+        "type": pl.Int64
+      })
 
 # Process pass QC alleles
 pass_df = (
@@ -203,14 +229,19 @@ fixed_df = (
     .select(["contig_index", "contig_position"])
     .join(pass_df, on=["contig_index", "contig_position"], how="left")
     .rename({"base": "final_base"})
-    .select(['contig_index','contig_position','final_base'])
-    .with_columns([
+    .select(["contig_index", "contig_position", "final_base"])
+    .with_columns(
         pl.when(pl.col("final_base") == "-")
-        .then(1)
-        .otherwise(0)
+        .then(pl.lit(1))
+        .otherwise(pl.lit(0))
         .alias("type")
-    ])
-)
+    )
+).cast({
+        "contig_index": pl.Int64,
+        "contig_position": pl.Int64,
+        "final_base": pl.Utf8,
+        "type": pl.Int64
+      })
 
 # Get het sites
 het_df = (
@@ -219,36 +250,49 @@ het_df = (
     .join(pass_df, on=["contig_index", "contig_position"], how="left")
 )
 
+
 if het_df.height > 0:
-    het_df_pd = (
-        het_df
-        .select(["contig_index", "contig_position", "row_count", "base"])
-        .to_pandas()
-        .groupby(["contig_index", "contig_position", "row_count"], as_index=False)
-        .agg(base_string=("base", lambda x: "".join(x)))
-    )
-    rows_with_digit = het_df_pd[het_df_pd["base_string"].str.contains(r"\d")]
-
-    # Select relevant columns and convert to Polars
-    contig_pos_with_digits = pl.from_pandas(rows_with_digit[["contig_index", "contig_position"]])
-
-    # Join with base_df on correct columns
-    filtered_base_df = contig_pos_with_digits.join(
-        base_df,
-        on=["contig_index", "contig_position"],
-        how="left"
-    )
-
-    het_df_pd["final_base"] = het_df_pd["base_string"].map(lambda s: degen_dict[s])
     
-    het_df = pl.from_pandas(het_df_pd[["contig_index", "contig_position", "row_count", "final_base"]])
-    het_df = het_df.with_columns([
-        pl.when(pl.col("row_count") <= max_alleles)
-        .then(4)
-        .otherwise(5)
-        .alias("type")
-    ]).select(["contig_index", "contig_position", "final_base", "type"])
-
+    base_only_df = (
+        het_df
+        .filter(pl.col("base").is_in(["A", "C", "G", "T"]))
+        .select(['contig_index','contig_position','base'])
+        .group_by(["contig_index", "contig_position"])
+        .agg(pl.col('base')).with_columns(pl.col('base').list.join('').alias('base_string'))
+        .with_columns([ pl.col("base_string").replace_strict(degen_dict).alias("degen_code") ])
+        )
+    
+    gap_positions = (
+        het_df
+        .filter(pl.col("base").str.contains(r"[-]"))
+        .select(["contig_index","contig_position"])
+    )
+    
+    het_base_df = (
+        base_only_df
+        .filter(~pl.struct(["contig_index", "contig_position"]).is_in(gap_positions))
+        .with_columns([
+            pl.col("degen_code").alias("final_base"),
+            pl.lit(3).alias("type")
+        ])
+    )
+    
+    het_gap_df = (
+        base_only_df
+        .filter(pl.struct(["contig_index", "contig_position"]).is_in(gap_positions))
+        .with_columns([
+            pl.col("degen_code").str.to_lowercase().alias("final_base"),
+            pl.lit(4).alias("type")
+        ])
+    )
+        
+    het_df = pl.concat([het_base_df,het_gap_df]).select(['contig_index','contig_position','final_base','type']).cast({
+        "contig_index": pl.Int64,
+        "contig_position": pl.Int64,
+        "final_base": pl.Utf8,
+        "type": pl.Int64
+      })
+    
 else:
     het_df = pl.DataFrame(schema={
         "contig_index": pl.Int64,
@@ -260,21 +304,25 @@ else:
 combined_df = pl.concat([insertion_df, fixed_df, het_df]).sort(['contig_index','contig_position'])
 
 # Get final counts
+map_df = pl.DataFrame({
+    "type": list(type_code_map.keys()),
+    "type_label": list(type_code_map.values())
+})
+
 type_counts = (
-    combined_df
-    .group_by("type")
-    .agg(pl.len().alias("count"))
+    combined_df.group_by("type").agg(pl.len().alias("count"))
+    .join(map_df, on="type", how="left")
     .sort("type")
-    .with_columns([
-        pl.col("type").map_elements(lambda x: type_code_map.get(x),return_dtype=pl.Utf8).alias("type_label")
-    ])
 )
 
 type_counts_dict = {
     (row["type_label"]): row["count"]
     for row in type_counts.select(["type_label", "count"]).to_dicts()
 }
-new_metadata['Called_Base_Counts'] = json.dumps(type_counts_dict)
+
+type_counts_list = [f"{k}:{v}" for k, v in type_counts_dict.items()]
+type_counts_str = ", ".join(type_counts_list)
+new_metadata['Called_Base_Counts'] = type_counts_str
 
 # Save final calls
 final_metadata = {k.encode(): v.encode() for k, v in new_metadata.items()}
