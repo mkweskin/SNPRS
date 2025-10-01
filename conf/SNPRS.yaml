@@ -26,3 +26,4 @@ dependencies:
   - fasttree
   - iqtree=2.3.6
   - seqkit
+  - natsort
