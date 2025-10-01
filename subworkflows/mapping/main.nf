@@ -111,8 +111,8 @@ process MAP_READS{
     def delete_cmd = (params.overwrite) ? "rm -rf $bam_file" : ":"
 
     def mapping_cmd = reverse
-    ? "bbmap.sh in=${forward} in2=${reverse} ambiguous=toss mappedonly=t out=stdout.sam | samtools view -b - | samtools sort -@ ${cpu} -o ${bam_file} -"
-    : "bbmap.sh in=${forward} ambiguous=toss mappedonly=t out=stdout.sam | samtools view -b - | samtools sort -@ ${cpu} -o ${bam_file} -"
+    ? "bbmap.sh threads=${cpu} in=${forward} in2=${reverse} ambiguous=toss mappedonly=t out=stdout.sam | samtools view -b - | samtools sort -@ ${cpu} -o ${bam_file} -"
+    : "bbmap.sh threads=${cpu} in=${forward} ambiguous=toss mappedonly=t out=stdout.sam | samtools view -b - | samtools sort -@ ${cpu} -o ${bam_file} -"
 
     """
     cd $mapping_directory &&
