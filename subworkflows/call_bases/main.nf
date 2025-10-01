@@ -2,6 +2,7 @@
 nextflow.enable.dsl=2
 
 cpu = params.cpus as Integer
+sample_cpu = (params.sample_cpus) ? params.sample_cpus as Integer : cpu
 
 ///// Call bases from raw parquets /////
 workflow callBases{
@@ -21,10 +22,9 @@ workflow callBases{
 
 process CALL_BASES{
     
-    cpus cpu
+    cpus sample_cpu
 
     tag "CallBases_${sample_id}"
-
 
     input:
     tuple val(sample_id),val(sample_parquet)

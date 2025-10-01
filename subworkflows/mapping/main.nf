@@ -1,7 +1,8 @@
 #! /usr/bin/env nextflow
 nextflow.enable.dsl=2
 
-def cpu = params.cpus as Integer
+cpu = params.cpus as Integer
+sample_cpu = (params.sample_cpus) ? params.sample_cpus as Integer : cpu
 
 ///// Map reads and generate BAMS /////
 workflow mapReads{
@@ -91,10 +92,9 @@ process FETCH_MAP_READS{
 
 process MAP_READS{
 
-    cpus cpu
-
     tag "Map_${sample_id}"
 
+    cpus sample_cpu
 
     input:
     tuple val(sample_id),val(forward),val(reverse)
@@ -111,8 +111,8 @@ process MAP_READS{
     def delete_cmd = (params.overwrite) ? "rm -rf $bam_file" : ":"
 
     def mapping_cmd = reverse
-    ? "bbmap.sh threads=${cpu} in=${forward} in2=${reverse} ambiguous=toss mappedonly=t out=stdout.sam | samtools view -b - | samtools sort -@ ${cpu} -o ${bam_file} -"
-    : "bbmap.sh threads=${cpu} in=${forward} ambiguous=toss mappedonly=t out=stdout.sam | samtools view -b - | samtools sort -@ ${cpu} -o ${bam_file} -"
+    ? "bbmap.sh threads=${sample_cpu} in=${forward} in2=${reverse} ambiguous=toss mappedonly=t out=stdout.sam | samtools view -b - | samtools sort -@ ${sample_cpu} -o ${bam_file} -"
+    : "bbmap.sh threads=${sample_cpu} in=${forward} ambiguous=toss mappedonly=t out=stdout.sam | samtools view -b - | samtools sort -@ ${sample_cpu} -o ${bam_file} -"
 
     """
     cd $mapping_directory &&

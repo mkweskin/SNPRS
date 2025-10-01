@@ -2,6 +2,7 @@
 nextflow.enable.dsl=2
 
 cpu = params.cpus as Integer
+sample_cpu = (params.sample_cpus) ? params.sample_cpus as Integer : cpu
 
 ///// Convert BAM files to Parquet /////
 workflow bamToParquet{
@@ -20,10 +21,9 @@ workflow bamToParquet{
 
 process BAM_TO_PARQUET{
     
-    cpus cpu
+    cpus sample_cpu
 
     tag "BAM2PQ_${sample_id}"
-
 
     input:
     tuple val(sample_id),val(sample_bam)
