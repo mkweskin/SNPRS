@@ -108,7 +108,6 @@ process FETCH_PG_READS{
 
 process COUNT_BASES {
 
-    label 'basicTools'
     tag "Count_${sample_id}"
 
     cpus = seqkit_cpus
@@ -142,7 +141,6 @@ process CALCULATE_SUBSETS{
 
     executor = 'local'
     cpus = 1
-    maxForks = 1
 
     input:
     val(base_count_file)
@@ -169,7 +167,6 @@ process CALCULATE_SUBSETS{
 
 process SUBSET_READS {
 
-    label 'basicTools'
     tag "Subset_${sample_id}"
 
     cpus 1
@@ -257,10 +254,10 @@ process LINK_READS {
 
 process ASSEMBLE_PANGENOME {
 
-    label 'assemblePangenome'
     tag "Assemble_Pangenome"
 
     clusterOptions = "--nodes=${node} --ntasks-per-node=${ray_cpu} --exclusive"
+    
     input:
     val(subset_folder)
     val(output_directory)
@@ -306,7 +303,7 @@ process PROCESS_RAY{
     rename.sh in=${ray_assembly} out=${pangenome_file} prefix=SNPRS addprefix=t trd=t
     stats.sh ${pangenome_file} &> ${stats_file}
     cd ${pangenome_directory}
-    bbmap.sh ref=${pangenome_file}
+    bbmap.sh threads=${cpu} ref=${pangenome_file}
     samtools faidx ${pangenome_file}
     echo -n "${pg_name},${pangenome_file}"
     """
@@ -404,7 +401,7 @@ process INDEX_FASTA{
 
     def bbmap_cmd = bbmap_ref.exists()
     ? ":"
-    : "bbmap.sh ref=${fasta_file}"
+    : "bbmap.sh threads=${cpu} ref=${fasta_file}"
 
     def sam_cmd = sam_idx.exists()
     ? ":"
