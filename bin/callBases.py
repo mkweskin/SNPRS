@@ -164,9 +164,9 @@ status_counts = {
         .unique()
         .height
     ),
-    "Ploidy_Fail": (
+    "Fail_Ploidy": (
         base_df
-        .filter(pl.col("status") == "Ploidy_Fail")
+        .filter(pl.col("status") == "Fail_Ploidy")
         .select(["contig_index", "contig_position"])
         .unique()
         .height

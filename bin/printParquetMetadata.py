@@ -32,9 +32,9 @@ def parquet_preview(parquet_path,preview_data):
         row_count = pq.ParquetFile(parquet_path).metadata.num_rows
         print(f"\nTotal rows: {row_count}")
 
-        head_df = lf.limit(100).collect()
-        print("\nFirst 100 rows:")
-        pl.Config.set_tbl_rows(100)
+        head_df = lf.limit(25).collect()
+        print("\nFirst 25 rows:")
+        pl.Config.set_tbl_rows(25)
         print(head_df)
 
 args = parse_args()
