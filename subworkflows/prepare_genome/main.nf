@@ -10,7 +10,7 @@ node = params.nodes as Integer
 ray_cpu = (params.ray_cpus) ? params.ray_cpus as Integer : cpu
 ray_cores = ray_cpu * node
 
-seqkit_cpus = (params.cpus as Integer) >= 2 ? 2 : params.cores as Integer
+seqkit_cpus = (params.cpus as Integer) >= 2 ? 2 : params.cpus as Integer
 
 
 ///// Create a SNPRS pangenome from reads /////
@@ -173,7 +173,6 @@ process SUBSET_READS {
     tag "Subset_${sample_id}"
 
     cpus 1
-    executor="slurm"
     memory '4 GB'
 
     input:
@@ -261,7 +260,6 @@ process ASSEMBLE_PANGENOME {
     label 'assemblePangenome'
     tag "Assemble_Pangenome"
 
-    executor = 'slurm'
     clusterOptions = "--nodes=${node} --ntasks-per-node=${ray_cpu} --exclusive"
     input:
     val(subset_folder)
