@@ -29,7 +29,7 @@ def parquet_preview(parquet_path,preview_data):
     if preview_data:
         lf = pl.read_parquet(parquet_path).lazy()
 
-        row_count = lf.select(pl.len()).head(1).collect().item()
+        row_count = pq.ParquetFile(parquet_path).metadata.num_rows
         print(f"\nTotal rows: {row_count}")
 
         head_df = lf.limit(100).collect()

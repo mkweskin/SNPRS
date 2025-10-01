@@ -10,6 +10,9 @@ node = params.nodes as Integer
 ray_cpu = (params.ray_cpus) ? params.ray_cpus as Integer : cpu
 ray_cores = ray_cpu * node
 
+seqkit_cpus = (params.cpus as Integer) >= 2 ? 2 : params.cores as Integer
+
+
 ///// Create a SNPRS pangenome from reads /////
 workflow assembleGenome{
 
@@ -108,7 +111,7 @@ process COUNT_BASES {
     label 'basicTools'
     tag "Count_${sample_id}"
 
-    cpus = 1
+    cpus = seqkit_cpus
     memory = '4 GB'
 
     input:
@@ -122,16 +125,14 @@ process COUNT_BASES {
     def pangenome_directory = file("${output_directory}/${pg_name}")
     def pangenome_prep_directory = file("${pangenome_directory}/Prep_${pg_name}")
     def base_count_file = file("${pangenome_prep_directory}/Read_Counts.csv")
-
-    def reformat_cmd = reverse 
-        ? "reformat.sh in=${forward} in2=${reverse} 2>&1" 
-        : "reformat.sh in=${forward} 2>&1"
+    def stats_cmd = reverse 
+    ? "seqkit stats -j $seqkit_cpus -a -T ${forward} ${reverse}" 
+    : "seqkit stats -j $seqkit_cpus -a -T ${forward}"
 
     """
-    output=\$(${reformat_cmd})
-    read_count_line=\$(echo "\$output" | grep "Output:")
-    read_count=\$(echo "\$read_count_line" | awk '{print \$2}')
-    base_count=\$(echo "\$read_count_line" | awk '{print \$5}')
+    output=\$(${stats_cmd})
+    read_count=\$(echo "\$output" | awk -F'\\t' 'NR>1 {sum+=\$4} END{print sum}')
+    base_count=\$(echo "\$output" | awk -F'\\t' 'NR>1 {sum+=\$5} END{print sum}')
     echo -e "${sample_id},\$read_count,\$base_count,${forward},${reverse}" >> ${base_count_file}
     echo -n ${base_count_file}
     """
