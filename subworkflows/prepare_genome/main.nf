@@ -276,7 +276,7 @@ process ASSEMBLE_PANGENOME {
     
     def assembly_directory = file("${pangenome_prep_directory}/Ray_${pg_name}")
     def ray_log = file("${pangenome_prep_directory}/out_Ray_${pg_name}")
-    def load_ray_module = params.ray_module == "" ? "" : "module load -s ${params.ray_module}"
+    def load_ray_module = (params.ray_module) ? "module load -s ${params.ray_module}" : ":"
 
     """
     $load_ray_module
