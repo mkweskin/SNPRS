@@ -212,12 +212,22 @@ workflow{
                 new_bam_data = Channel.empty()
             }
 
-            bam_data = existing_bam_data.concat(new_bam_data)
+            if("${params.runProfile}" == "local"){
+                bam_data = existing_bam_data.concat(new_bam_data) | collect | flatten | collate(2)
+            } else{
+                bam_data = existing_bam_data.concat(new_bam_data) 
+            }
 
             // Get raw parquets
             existing_parquet_data = (params.raw_parquet && !params.validate) ? fetchRawParquet(params.raw_parquet) : Channel.empty()
             new_parquet_data = (pangenome_info && bam_data) ? bamToParquet(bam_data,pangenome_info,current_mapping_directory) : Channel.empty()
             raw_parquet_data = existing_parquet_data.concat(new_parquet_data)
+
+            if("${params.runProfile}" == "local"){
+                raw_parquet_data = existing_parquet_data.concat(new_parquet_data) | collect | flatten | collate(2)
+            } else{
+                raw_parquet_data = existing_parquet_data.concat(new_parquet_data)
+            }
 
             // Get called bases
             existing_called_base_data = (params.called_bases && !params.validate) ? fetchCalledBases(params.called_bases) : Channel.empty()

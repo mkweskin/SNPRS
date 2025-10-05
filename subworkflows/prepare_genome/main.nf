@@ -277,7 +277,7 @@ process ASSEMBLE_PANGENOME {
 
     """
     $load_ray_module
-    mpirun -np ${ray_cores} Ray -k ${kmer} -detect-sequence-files ${subset_folder} -o ${assembly_directory}  &> ${ray_log} &&
+    mpirun --use-hwthread-cpus -np ${ray_cores} Ray -k ${kmer} -detect-sequence-files ${subset_folder} -o ${assembly_directory}  &> ${ray_log} &&
     echo -n "${assembly_directory}/Contigs.fasta"
     """
 }
