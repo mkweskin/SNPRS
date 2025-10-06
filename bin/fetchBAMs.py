@@ -4,11 +4,12 @@ import os
 import sys
 import argparse
 from pathlib import Path
+import pysam
 
 # Parse args
 
 parser = argparse.ArgumentParser(description='Fetch Reads')
-parser.add_argument('-b','--bam_data',dest="bam_data", type=str, help='Path to directory containing BAM files or a file with a list of BAM files')
+parser.add_argument('-b','--bam_data',dest="bam_data", type=str, help='Path to directory containing coordinate-sorted BAM files or a file with a list of BAM files')
 args = parser.parse_args()
 
 bam_data = os.path.abspath(args.bam_data)
@@ -26,4 +27,9 @@ if len(bam_files) == 0:
 bam_tuples = [(os.path.splitext(os.path.basename(bam_file))[0], bam_file) for bam_file in bam_files]
 
 for sample, bam in bam_tuples:
-    print(f"{sample},{bam}")
+    with pysam.AlignmentFile(bam, "rb") as bamfile:
+        sort_order = bamfile.header.get("HD", {}).get("SO", "unknown")
+    if sort_order == "coordinate":        
+        print(f"{sample},{bam}")
+    else:
+        print(f"Warning: {bam} is not coordinate-sorted and will not be processed", file=sys.stderr)
