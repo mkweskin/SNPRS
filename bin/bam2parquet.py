@@ -21,17 +21,17 @@ import pysam
 import tempfile
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Process pileup file into parquet")
+    parser = argparse.ArgumentParser(description="Process BAM/pileup file into SNPRS parquet")
     
-    parser.add_argument("-b","--bam", dest="bam_file", type=str, required=True,help="Path to input BAM file")
-    parser.add_argument("-f","--fasta", dest="fasta_file", type=str, required=True,help="Path to reference FASTA file")
-    parser.add_argument("-p","--parquet", dest="parquet_file", type=str, default=None,help="Path to output Parquet file [Default: bam_file with .parquet extension]")
+    parser.add_argument("--bam", dest="bam_file", type=str, default=None,help="Path to input BAM file")
+    parser.add_argument("--pileup", dest="pileup_file", type=str, default=None,help="Path to input pileup file processed in SNPRS fashion; Overrides --bam")
+    parser.add_argument("--parquet", dest="parquet_file", type=str, default=None,help="Path to output Parquet file [Default: bam_file/pileup file with .parquet extension]")
+
+    parser.add_argument("--fasta", dest="fasta_file", type=str, required=True,help="Path to reference FASTA file")
 
     parser.add_argument("--mapq", dest="mapq", type=int, default=15,help="Mapping quality argument for mpileup -q [Default: 15]")
     parser.add_argument("--baseq", dest="baseq", type=int, default=15,help="Base quality argument for mpileup -Q [Default: 15]")
     parser.add_argument("--adj_coef", dest="adj_coef", type=int, default=50,help="Adjusted coefficient argument for mpileup -C [Default: 50]")
-
-    parser.add_argument("--dup", dest="duplicate", action = "store_true",help="Perform filtering of PCR duplicates")
     
     return parser.parse_args()
 
@@ -210,6 +210,10 @@ baseq = args.baseq
 adj_coef = args.adj_coef
 
 all_records,paired = bam_to_pileup(bam_file,fasta_file,mapq,baseq,adj_coef,args.duplicate)
+
+
+
+
 out_df = (
     pl.concat(all_records)
     .with_columns([
