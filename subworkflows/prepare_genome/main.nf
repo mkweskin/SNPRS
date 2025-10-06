@@ -7,8 +7,7 @@ kmer = params.kmer as Integer
 
 cpu = params.cpus as Integer
 node = params.nodes as Integer
-ray_cpu = (params.ray_cpus) ? params.ray_cpus as Integer : cpu
-ray_cores = ray_cpu * node
+ray_cores = cpu * node
 
 seqkit_cpus = (params.cpus as Integer) >= 2 ? 2 : params.cpus as Integer
 
@@ -256,7 +255,7 @@ process ASSEMBLE_PANGENOME {
 
     tag "Assemble_Pangenome"
 
-    clusterOptions = "--nodes=${node} --ntasks-per-node=${ray_cpu} --exclusive"
+    clusterOptions = "--nodes=${node} --ntasks-per-node=${cpu} --exclusive"
     
     input:
     val(subset_folder)
