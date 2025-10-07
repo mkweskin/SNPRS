@@ -46,7 +46,6 @@ process BAM_TO_PARQUET{
 
     def mapq = params.mapq as Integer
     def baseq = params.baseq as Integer
-    def adj_coef = params.adj_coef as Integer
 
     def delete_cmd = (params.overwrite)
     ? "rm -f $output_file $pileup_file"
@@ -63,7 +62,7 @@ fi"""
     mkdir -p ${pileup_directory} &&
     $delete_cmd &&
     $pileup_cmd &&
-    python ${bam_convert_script} --bam ${sample_bam} --pileup ${pileup_file} --fasta ${fasta_path} --parquet ${output_file} --mapq ${mapq} --baseq ${baseq} --adj_coef ${adj_coef} &&
+    python ${bam_convert_script} --bam ${sample_bam} --pileup ${pileup_file} --fasta ${fasta_path} --parquet ${output_file} --mapq ${mapq} --baseq ${baseq} &&
     echo -n "${sample_id},${output_file}"
     """
 }

@@ -133,7 +133,7 @@ def process_chunk(path, i, start, end):
 
 def convert_bam(bam_file,pileup_path,fasta_file,user_cpu, mapq, baseq, adj_coef):
     
-    convert_cmd = f"samtools view -@ {user_cpu} -h -F 3844 {bam_file} | samtools mpileup -q {mapq} -Q {baseq} --no-output-ends --no-output-del -f {fasta_file} -C {adj_coef} - | awk 'NF >= 4 && ($4 > 0 || $4 != "")'"
+    convert_cmd = f"samtools view -@ {user_cpu} -h -F 3844 {bam_file} | samtools mpileup -q {mapq} -Q {baseq} --no-output-ends --no-output-del -f {fasta_file} - | awk 'NF >= 4 && ($4 > 0 || $4 != "")'"
 
     with open(pileup_path, "w") as pileup_file:
         subprocess.run(
