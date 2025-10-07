@@ -106,9 +106,12 @@ process MAP_READS{
     script:
 
     def bam_dir = file ("${mapping_directory}/BAMs")
-    def bam_file = file("${bam_dir}/${sample_id}.bam")
+    def raw_bam_file = file("${bam_dir}/${sample_id}_Raw.bam")
     def sort_file = file("${bam_dir}/${sample_id}_sort.bam")
     def mate_file = file("${bam_dir}/${sample_id}_mate.bam")
+
+    def bam_file = file("${bam_dir}/${sample_id}.bam")
+
 
     def delete_cmd = (params.overwrite)
     ? "rm -f $bam_file"
@@ -119,12 +122,12 @@ if [ -e "$bam_file" ]; then
 fi"""    
       
     def mapping_cmd = reverse
-    ? "bbmap.sh threads=${sample_cpu} in=${forward} in2=${reverse} ambiguous=toss mappedonly=t out=stdout.sam | samtools view -b -"
-    : "bbmap.sh threads=${sample_cpu} in=${forward} ambiguous=toss mappedonly=t out=stdout.sam | samtools view -b -"
+    ? "bbmap.sh threads=${sample_cpu} in=${forward} in2=${reverse} ambiguous=toss mappedonly=t out=${raw_bam_file}"
+    : "bbmap.sh threads=${sample_cpu} in=${forward} ambiguous=toss mappedonly=t out=${raw_bam_file}"
 
     def sort_1 = reverse
-    ? "samtools sort -n -@ ${sample_cpu} -o ${sort_file} -"
-    : "samtools sort -@ ${sample_cpu} -o ${bam_file} -"
+    ? "samtools sort -n -@ ${sample_cpu} -o ${sort_file} ${raw_bam_file} && rm -f ${raw_bam_file}"
+    : "samtools sort -@ ${sample_cpu} -o ${bam_file} ${raw_bam_file} && rm -f ${raw_bam_file}"
 
     def processing_cmd = reverse
     ? "samtools fixmate -@ ${sample_cpu} -m ${sort_file} ${mate_file}; rm -f ${sort_file}; samtools sort -@ ${sample_cpu} -o ${sort_file} ${mate_file}; rm -f ${mate_file}; samtools markdup -@ ${sample_cpu} ${sort_file} ${bam_file}; rm -f ${sort_file}"
@@ -133,7 +136,8 @@ fi"""
     """
     cd $mapping_directory &&
     $delete_cmd &&
-    $mapping_cmd | $sort_1 &&
+    $mapping_cmd &&
+    $sort_1 &&
     $processing_cmd &&
     echo -n "${sample_id},${bam_file}"
     """
