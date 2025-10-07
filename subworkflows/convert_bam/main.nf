@@ -38,18 +38,32 @@ process BAM_TO_PARQUET{
     def bam_convert_script = file("${projectDir}/bin/bam2parquet.py")
 
     def output_directory = file("${mapping_directory}/Raw_Parquet")
+    def pileup_directory = file("${mapping_directory}/Pileups")
     def output_file = file("${output_directory}/${sample_id}_Raw.parquet")
+    
+    def pileup_file = file("${pileup_directory}/${sample_id}.pileup")
+    def filter_bam = file("${output_directory}/${sample_id}_filter.bam")
 
     def mapq = params.mapq as Integer
     def baseq = params.baseq as Integer
     def adj_coef = params.adj_coef as Integer
 
-    def delete_cmd = (params.overwrite) ? "rm -rf $output_file" : ":"
-    def dup = params.markdup ? "--dup" : ""
+    def delete_cmd = (params.overwrite)
+    ? "rm -f $output_file $pileup_file"
+    : """
+if [ -e "$output_file" ] || [ -e "$pileup_file" ]; then
+    echo "❌ Error: Output or pileup file already exists — use --overwrite to replace." >&2
+    exit 1
+fi"""    
+
+    def pileup_cmd ="""samtools view -@ ${sample_cpu} -h -F 3844 -o ${filter_bam} ${sample_bam}; samtools mpileup -q ${mapq} -Q ${baseq} --no-output-ends --no-output-del -f ${fasta_path} -C ${adj_coef} ${filter_bam} | awk 'NF >= 4 && (\$4 > 0 || \$4 != "")' > ${pileup_file};rm -f ${filter_bam}"""
+
     """
     mkdir -p ${output_directory} &&
+    mkdir -p ${pileup_directory} &&
     $delete_cmd &&
-    python ${bam_convert_script} -b ${sample_bam} -f ${fasta_path} -p ${output_file} --mapq ${mapq} --baseq ${baseq} --adj_coef ${adj_coef} ${dup} &&
+    $pileup_cmd &&
+    python ${bam_convert_script} --bam ${sample_bam} --pileup ${pileup_file} --fasta ${fasta_path} --parquet ${output_file} --mapq ${mapq} --baseq ${baseq} --adj_coef ${adj_coef} &&
     echo -n "${sample_id},${output_file}"
     """
 }

@@ -107,21 +107,34 @@ process MAP_READS{
 
     def bam_dir = file ("${mapping_directory}/BAMs")
     def bam_file = file("${bam_dir}/${sample_id}.bam")
+    def sort_file = file("${bam_dir}/${sample_id}_sort.bam")
+    def mate_file = file("${bam_dir}/${sample_id}_mate.bam")
 
-    def delete_cmd = (params.overwrite) ? "rm -f $bam_file" : ":"
-
+    def delete_cmd = (params.overwrite)
+    ? "rm -f $bam_file"
+    : """
+if [ -e "$bam_file" ]; then
+    echo "❌ Error: BAM file already exists — use --overwrite to replace." >&2
+    exit 1
+fi"""    
+      
     def mapping_cmd = reverse
     ? "bbmap.sh threads=${sample_cpu} in=${forward} in2=${reverse} ambiguous=toss mappedonly=t out=stdout.sam | samtools view -b -"
     : "bbmap.sh threads=${sample_cpu} in=${forward} ambiguous=toss mappedonly=t out=stdout.sam | samtools view -b -"
 
-    def processing_cmd = reverse
-    ? "samtools sort -n -@ ${sample_cpu} - | samtools fixmate -@ ${sample_cpu} -m - - | samtools sort -@ ${sample_cpu} - | samtools markdup -@ ${sample_cpu} - ${bam_file}"
+    def sort_1 = reverse
+    ? "samtools sort -n -@ ${sample_cpu} -o ${sort_file} -"
     : "samtools sort -@ ${sample_cpu} -o ${bam_file} -"
+
+    def processing_cmd = reverse
+    ? "samtools fixmate -@ ${sample_cpu} -m ${sort_file} ${mate_file}; rm -f ${sort_file}; samtools sort -@ ${sample_cpu} -o ${sort_file} ${mate_file}; rm -f ${mate_file}; samtools markdup -@ ${sample_cpu} ${sort_file} ${bam_file}; rm -f ${sort_file}"
+    : ":"
 
     """
     cd $mapping_directory &&
     $delete_cmd &&
-    $mapping_cmd | $processing_cmd &&
+    $mapping_cmd | $sort_1 &&
+    $processing_cmd &&
     echo -n "${sample_id},${bam_file}"
     """
 }
