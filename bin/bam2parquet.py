@@ -32,7 +32,6 @@ def parse_args():
 
     parser.add_argument("--mapq", dest="mapq", type=int, default=15,help="Mapping quality argument for mpileup -q [Default: 15]")
     parser.add_argument("--baseq", dest="baseq", type=int, default=15,help="Base quality argument for mpileup -Q [Default: 15]")
-    parser.add_argument("--adj_coef", dest="adj_coef", type=int, default=50,help="Adjusted coefficient argument for mpileup -C [Default: 50]")
     
     return parser.parse_args()
 
@@ -131,9 +130,9 @@ def process_chunk(path, i, start, end):
 
         return chunk_file
 
-def convert_bam(bam_file,pileup_path,fasta_file,user_cpu, mapq, baseq, adj_coef):
+def convert_bam(bam_file,pileup_path,fasta_file,user_cpu, mapq, baseq):
     
-    convert_cmd = f"samtools view -@ {user_cpu} -h -F 3844 {bam_file} | samtools mpileup -q {mapq} -Q {baseq} --no-output-ends --no-output-del -f {fasta_file} - | awk 'NF >= 4 && ($4 > 0 || $4 != "")'"
+    convert_cmd = f"samtools view -@ {user_cpu} -q {mapq} -h -F 3844 {bam_file} | samtools mpileup -Q {baseq} --no-output-ends --no-output-del -f {fasta_file} - | awk 'NF >= 4 && ($4 > 0 || $4 != "")'"
 
     with open(pileup_path, "w") as pileup_file:
         subprocess.run(
@@ -242,7 +241,7 @@ def get_arrow(chunk_file,metadata):
             pl.col("frequency").cast(pl.Float64),
             pl.col("base").cast(pl.Utf8)
         ])
-        .sort(['contig_index','contig_position'])
+        .sort(by=["contig_index", "contig_position", "frequency"],descending=[False, False, True])
         .collect()
         .to_arrow()
         .replace_schema_metadata(metadata)
@@ -255,7 +254,7 @@ user_cpu = args.user_cpu if args.user_cpu else os.cpu_count()
 
 mapq = args.mapq
 baseq = args.baseq
-adj_coef = args.adj_coef
+
 
 # Process reference fasta
 fasta_file = os.path.abspath(args.fasta_file)
@@ -288,7 +287,7 @@ else:
     data_dir = os.path.dirname(bam_file)
     sample_name = os.path.splitext(os.path.basename(bam_file))[0]
     pileup_path = os.path.join(data_dir,sample_name+".pileup")
-    pileup_file = convertBAM(bam_file,pileup_path,fasta_file,user_cpu,mapq,baseq,adj_coef)
+    pileup_file = convertBAM(bam_file,pileup_path,fasta_file,user_cpu,mapq,baseq)
 
 # Set ouptut file
 if not args.parquet_file:
@@ -316,7 +315,7 @@ metadata = {
     "reference_genome": fasta_file,
     "percent_covered": percent_covered,
     "paired_end":"TRUE" if paired else "FALSE",
-    "qc_filtering_params":f"MAPQ: {mapq}; BASEQ: {baseq}; ADJ_COEF: {adj_coef}",
+    "qc_filtering_params":f"MAPQ: {mapq}; BASEQ: {baseq}",
     "depth_statistics": ", ".join([f"{k}: {v}" for k, v in depth_stats.items()]),
     "allele_frequencies": ", ".join([f"{k}: {v}" for k, v in freq_stats.items()])
 }
