@@ -55,7 +55,7 @@ if [ -e "$output_file" ] || [ -e "$pileup_file" ]; then
     exit 1
 fi"""    
 
-    def pileup_cmd ="""samtools view -@ ${sample_cpu} -q ${mapq} -h -F 3844 -o ${filter_bam} ${sample_bam}; samtools mpileup -Q ${baseq} --no-output-ends --no-output-del -f ${fasta_path} ${filter_bam} | awk 'NF >= 4 && (\$4 > 0 || \$4 != "")' > ${pileup_file};rm -f ${filter_bam}"""
+    def pileup_cmd ="""samtools view -@ ${sample_cpu} -q ${mapq} -h -F 3844 -o ${filter_bam} ${sample_bam}; samtools index -@ ${sample_cpu} ${filter_bam}; samtools mpileup -Q ${baseq} --no-output-ends --no-output-del -f ${fasta_path} ${filter_bam} | awk 'NF >= 4 && (\$4 > 0 || \$4 != "")' > ${pileup_file};rm -f ${filter_bam}"""
 
     """
     mkdir -p ${output_directory} &&
