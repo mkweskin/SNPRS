@@ -106,39 +106,39 @@ process MAP_READS{
     script:
 
     def bam_dir = file ("${mapping_directory}/BAMs")
-    def raw_bam_file = file("${bam_dir}/${sample_id}_Raw.bam")
-    def sort_file = file("${bam_dir}/${sample_id}_sort.bam")
-    def mate_file = file("${bam_dir}/${sample_id}_mate.bam")
-
     def bam_file = file("${bam_dir}/${sample_id}.bam")
 
+    def raw_bam_file = file("${bam_dir}/${sample_id}_raw.bam")
+    def sort_file = file("${bam_dir}/${sample_id}_sort.bam")
+    def mate_file = file("${bam_dir}/${sample_id}_mate.bam")
+    def dup_file = file("${bam_dir}/${sample_id}_dup.bam")
 
     def delete_cmd = (params.overwrite)
-    ? "rm -f $bam_file"
+    ? "rm -f $bam_file $raw_bam_file $sort_file $mate_file $dup_file" 
     : """
-if [ -e "$bam_file" ]; then
-    echo "❌ Error: BAM file already exists — use --overwrite to replace." >&2
+if [ -e "$bam_file" ] || [ -e "$raw_bam_file" ] || [ -e "$sort_file" ] || [ -e "$mate_file" ] || [ -e "$dup_file" ]; then
+    echo "❌ Error: BAM files or intermediates already exist! Use --overwrite to replace." >&2
     exit 1
 fi"""    
       
     def mapping_cmd = reverse
-    ? "bbmap.sh threads=${sample_cpu} in=${forward} in2=${reverse} ambiguous=toss mappedonly=t out=${raw_bam_file}"
-    : "bbmap.sh threads=${sample_cpu} in=${forward} ambiguous=toss mappedonly=t out=${raw_bam_file}"
-
-    def sort_1 = reverse
-    ? "samtools sort -n -@ ${sample_cpu} -o ${sort_file} ${raw_bam_file} && rm -f ${raw_bam_file}"
-    : "samtools sort -@ ${sample_cpu} -o ${bam_file} ${raw_bam_file} && rm -f ${raw_bam_file}"
-
-    def processing_cmd = reverse
-    ? "samtools fixmate -@ ${sample_cpu} -m ${sort_file} ${mate_file}; rm -f ${sort_file}; samtools sort -@ ${sample_cpu} -o ${sort_file} ${mate_file}; rm -f ${mate_file}; samtools markdup -@ ${sample_cpu} ${sort_file} ${bam_file}; rm -f ${sort_file}"
-    : ":"
+    ? """
+bbmap.sh threads=${sample_cpu} in=${forward} in2=${reverse} ambiguous=toss mappedonly=t out=${raw_bam_file} && 
+samtools sort -n -@ ${sample_cpu} -o ${sort_file} ${raw_bam_file} && rm -f ${raw_bam_file} && 
+samtools fixmate -@ ${sample_cpu} -m ${sort_file} ${mate_file} && rm -f ${sort_file} &&
+samtools sort -@ ${sample_cpu} -o ${sort_file} ${mate_file} && rm -f ${mate_file} &&
+samtools markdup -@ ${sample_cpu} ${sort_file} ${dup_file} && rm -f ${sort_file} &&
+samtools sort -@ ${sample_cpu} -o ${bam_file} ${dup_file} && rm -f ${dup_file} &&
+samtools index -@ ${sample_cpu} ${bam_file}"""
+    : """
+bbmap.sh threads=${sample_cpu} in=${forward} ambiguous=toss mappedonly=t out=${raw_bam_file} && 
+samtools sort -@ ${sample_cpu} -o ${bam_file} ${raw_bam_file} && rm -f ${raw_bam_file} &&
+samtools index -@ ${sample_cpu} ${bam_file}"""
 
     """
     cd $mapping_directory &&
     $delete_cmd &&
     $mapping_cmd &&
-    $sort_1 &&
-    $processing_cmd &&
     echo -n "${sample_id},${bam_file}"
     """
 }
