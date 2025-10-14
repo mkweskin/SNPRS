@@ -94,7 +94,6 @@ else:
 if args.make_parquet:
     out_parquet = os.path.join(data_dir,fasta_name+".parquet")
     df.to_parquet(out_parquet, index=False,compression = "snappy")
-    print(f"[✔] Wrote contig table to {out_parquet}")
 
 if args.make_tsv:
     out_tsv = os.path.join(data_dir,fasta_name+".tsv")

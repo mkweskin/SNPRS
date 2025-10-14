@@ -120,9 +120,12 @@ if [ -e "$bam_file" ] || [ -e "$raw_bam_file" ] || [ -e "$sort_file" ] || [ -e "
     echo "❌ Error: BAM files or intermediates already exist! Use --overwrite to replace." >&2
     exit 1
 fi"""    
-      
-    def mapping_cmd = reverse
-    ? """
+
+    def mapping_cmd
+
+    if(params.mem_mode){
+        mapping_cmd = reverse
+        ? """
 bbmap.sh threads=${sample_cpu} in=${forward} in2=${reverse} ambiguous=toss mappedonly=t out=${raw_bam_file} && 
 samtools sort -n -@ ${sample_cpu} -o ${sort_file} ${raw_bam_file} && rm -f ${raw_bam_file} && 
 samtools fixmate -@ ${sample_cpu} -m ${sort_file} ${mate_file} && rm -f ${sort_file} &&
@@ -130,10 +133,22 @@ samtools sort -@ ${sample_cpu} -o ${sort_file} ${mate_file} && rm -f ${mate_file
 samtools markdup -@ ${sample_cpu} ${sort_file} ${dup_file} && rm -f ${sort_file} &&
 samtools sort -@ ${sample_cpu} -o ${bam_file} ${dup_file} && rm -f ${dup_file} &&
 samtools index -@ ${sample_cpu} ${bam_file}"""
-    : """
+        : """
 bbmap.sh threads=${sample_cpu} in=${forward} ambiguous=toss mappedonly=t out=${raw_bam_file} && 
-samtools sort -@ ${sample_cpu} -o ${bam_file} ${raw_bam_file} && rm -f ${raw_bam_file} &&
-samtools index -@ ${sample_cpu} ${bam_file}"""
+samtools sort -@ ${sample_cpu} -o ${bam_file} ${raw_bam_file} && rm -f ${raw_bam_file} && samtools index -@ ${sample_cpu} ${bam_file}"""
+    } else{
+        mapping_cmd = reverse ?
+    """
+bbmap.sh threads=${sample_cpu} in=${forward} in2=${reverse} ambiguous=toss mappedonly=t out=stdout.bam | \
+samtools sort -n -@ ${sample_cpu} -T ${sample_id}_tmp - | \
+samtools fixmate -@ ${sample_cpu} -m - - | \
+samtools sort -@ ${sample_cpu} -T ${sample_id}_tmp - | \
+samtools markdup -@ ${sample_cpu} - - | \
+samtools sort -@ ${sample_cpu} -o ${bam_file} - && samtools index -@ ${sample_cpu} ${bam_file}""" :
+    """
+bbmap.sh threads=${sample_cpu} in=${forward} ambiguous=toss mappedonly=t out=stdout.bam| \
+samtools sort -@ ${sample_cpu} -o ${bam_file} - && samtools index -@ ${sample_cpu} ${bam_file}"""
+    }
 
     """
     cd $mapping_directory &&
