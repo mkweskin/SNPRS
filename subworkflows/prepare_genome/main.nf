@@ -11,6 +11,16 @@ ray_cores = cpu * node
 
 seqkit_cpus = (params.cpus as Integer) >= 2 ? 2 : params.cpus as Integer
 
+if(params.fasta){
+    fasta_file = file(params.fasta)
+    fasta_dir = fasta_file.getParent()
+    ref_exists = file("${fasta_dir}/ref").exists()
+} else{
+    ref_exists = false
+}
+
+index_cpus = ref_exists ? 1 : cpu
+
 
 ///// Create a SNPRS pangenome from reads /////
 workflow assembleGenome{
@@ -298,12 +308,15 @@ process PROCESS_RAY{
 
     def pangenome_file = file("${pangenome_directory}/${pg_name}.fasta")
     def stats_file = file("${pangenome_directory}/${pg_name}_BBStats")
+    def index_script = file("${projectDir}/bin/contig_idx.py")
+
     """
     rename.sh in=${ray_assembly} out=${pangenome_file} prefix=SNPRS addprefix=t trd=t
     stats.sh ${pangenome_file} &> ${stats_file}
     cd ${pangenome_directory}
     bbmap.sh threads=${cpu} ref=${pangenome_file}
     samtools faidx ${pangenome_file}
+    python $index_script --fasta $pangenome_file --make_parquet
     echo -n "${pg_name},${pangenome_file}"
     """
 }
@@ -320,67 +333,12 @@ workflow prepareGenome{
     
     main:
         
-    if (!fasta_file.isFile()) {
-        error "Assembly provided by --fasta (${fasta_file}) does not exist..."
-    }
-
-    // Check if ref and .fai exist in the directory
-    index_check = CHECK_INDEX(fasta_file) | splitCsv()
-
-    branched = index_check.branch { it ->
-        needs_indexing: (it[0].toString() == "BBMap_Absent" || it[1].toString() == "SAM_Absent")
-        already_indexed: true
-    }
-
-    // Create ref and fai
-    reindexed = branched.needs_indexing
-    .map { fasta_file }
-    | INDEX_FASTA
-    | splitCsv()
-
-    // ref and fai already exist
-    existing = branched.already_indexed
-    .map { tuple(it[2], it[3]) }
-
-    return_pangenome = reindexed.concat(existing).collect().flatten().collate(2)
-}
-
-process CHECK_INDEX{
-    executor = "local"
-    cpus 1
-
-    input:
-    val(fasta_path)
-
-    output:
-    stdout
-
-    script:
-    
-    def fasta_file = file("${fasta_path}") 
-    def fasta_dir = fasta_file.getParent()
-    def fasta_name = fasta_file.getName()
-    def fasta_basename = fasta_file.getBaseName()
-    
-    def bbmap_ref = file("${fasta_dir}/ref")
-    def sam_idx = file("${fasta_dir}/${fasta_name}.fai")
-
-    def bbmap_check = bbmap_ref.exists()
-    ? "BBMap_Present"
-    : "BBMap_Absent"
-
-    def sam_check = sam_idx.exists()
-    ? "SAM_Present"
-    : "SAM_Absent"
-
-    """
-    echo -n "${bbmap_check},${sam_check},${fasta_basename},${fasta_file}"
-    """
+    return_pangenome = INDEX_FASTA(fasta_file).collect().flatten().collate(2)
 }
 
 process INDEX_FASTA{
 
-    cpus cpu
+    cpus index_cpus
     
     input:
     val(fasta_path)
@@ -394,9 +352,11 @@ process INDEX_FASTA{
     def fasta_dir = fasta_file.getParent()
     def fasta_name = fasta_file.getName()
     def fasta_basename = fasta_file.getBaseName()
-    
+
+    def index_script = file("${projectDir}/bin/contig_idx.py")
     def bbmap_ref = file("${fasta_dir}/ref")
     def sam_idx = file("${fasta_dir}/${fasta_name}.fai")
+    def index_parquet = file("${fasta_dir}/${fasta_name}.parquet")
 
     def bbmap_cmd = bbmap_ref.exists()
     ? ":"
@@ -406,10 +366,16 @@ process INDEX_FASTA{
     ? ":"
     : "samtools faidx ${fasta_file}"
 
+    def idx_cmd = index_parquet.exists()
+    ? ":"
+    : "python $index_script --fasta $fasta_file --make_parquet"
+    
+
     """
     cd ${fasta_dir} &&
     ${bbmap_cmd} &&
     ${sam_cmd} &&
+    ${idx_cmd} &&
     echo -n "${fasta_basename},${fasta_file}"
     """
 }
@@ -429,7 +395,7 @@ workflow checkSNPRSGenome{
     genome_dir = file("${pangenome_directory}/${pg_name}")
 
     if(genome_dir.isDirectory()){
-        pangenome_info = CHECK_GENOME(genome_dir) | splitCsv()
+        pangenome_info = CHECK_GENOME(genome_dir,pg_name).splitCsv().collect().flatten().collate(2)
     } else{
         error "Directory ${genome_dir} does not exist..."
     }
@@ -437,51 +403,50 @@ workflow checkSNPRSGenome{
 
 process CHECK_GENOME{
 
-    executor = "local"
-    cpus 1
+    cpus index_cpus
 
     input:
     val(genome_dir)
+    val(pg_name)
 
     output:
     stdout
 
     script:
     
-    def genome_dir = file("${genome_dir}") 
-    def bbmap_ref = file("${genome_dir}/ref")
+    def fasta_file = file("${genome_dir}/${pg_name}.fasta")
 
-    """
-    cd ${genome_dir}
-
-    get_fasta_from_fai() {
-        local folder="\$1"
-        local fai_files=("\$folder"/*.fai)
-        if [[ ! -e "\${fai_files[0]}" ]]; then
-            echo "Error: No .fai file found in \$folder" >&2
-            return 1
-        fi
-
-        if (( \${#fai_files[@]} != 1 )); then
-            echo "Error: Expected exactly 1 .fai file in \$folder, found \${#fai_files[@]}" >&2
-            return 1
-        fi
-
-        local fasta="\${fai_files[0]%.fai}"
-        echo -n "\$fasta"
+    if(!fasta_file.exists()){
+        error "${fasta_file} does not exist...exiting..."
     }
 
-    FASTA=\$(get_fasta_from_fai "${genome_dir}")
-    FASTA_NAME=\$(basename "\${FASTA%.*}")
+    def fasta_dir = fasta_file.getParent()
+    def fasta_name = fasta_file.getName()
+    def fasta_basename = fasta_file.getBaseName()
 
-    if [[ ! -d "${bbmap_ref}" ]]; then
-        echo "Error: Directory ${bbmap_ref} does not exist" >&2
-        exit 1
-    elif [[ ! -f "\$FASTA" ]]; then
-        echo "Error: FAI base file \$FASTA does not exist" >&2
-        exit 1
-    fi
+    def index_script = file("${projectDir}/bin/contig_idx.py")
+    def bbmap_ref = file("${fasta_dir}/ref")
+    def sam_idx = file("${fasta_dir}/${fasta_name}.fai")
+    def index_parquet = file("${fasta_dir}/${fasta_name}.parquet")
 
-    echo -n "\$FASTA_NAME,\$FASTA"
+    def bbmap_cmd = bbmap_ref.exists()
+    ? ":"
+    : "bbmap.sh threads=${cpu} ref=${fasta_file}"
+
+    def sam_cmd = sam_idx.exists()
+    ? ":"
+    : "samtools faidx ${fasta_file}"
+
+    def idx_cmd = index_parquet.exists()
+    ? ":"
+    : "python $index_script --fasta $fasta_file --make_parquet"
+    
+
+    """
+    cd ${fasta_dir} &&
+    ${bbmap_cmd} &&
+    ${sam_cmd} &&
+    ${idx_cmd} &&
+    echo -n "${pg_name},${fasta_file}"
     """
 }
