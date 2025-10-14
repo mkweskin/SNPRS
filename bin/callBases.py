@@ -70,7 +70,6 @@ args = parse_args()
 sample_parquet = os.path.abspath(args.sample_parquet)
 read_cov = int(args.site_cov)
 allele_cov = int(args.allele_cov)
-read_cov = max(read_cov, allele_cov)
 
 min_freq = float(args.min_freq)
 max_alleles = int(args.max_alleles)
