@@ -45,7 +45,7 @@ process BAM_TO_PARQUET{
     def adj_coef = params.adj_coef as Integer
 
     def delete_cmd = (params.overwrite)
-    ? "rm -f $output_file $pileup_file"
+    ? "rm -f $output_file"
     : """
 if [ -e "$output_file" ] ; then
     echo "❌ Error: Output file already exists — use --overwrite to replace." >&2

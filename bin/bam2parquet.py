@@ -22,6 +22,7 @@ import pysam
 import tempfile
 import math
 import csv
+import io
 
 lock = Lock()
 
@@ -37,38 +38,81 @@ def parse_args():
     parser.add_argument("--adj_coef", dest="adj_coef", type=int, default=50,help="Adjustment coefficient for mpileup -C [Default: 50]")
     
     parser.add_argument("--cpus", dest="user_cpu", type=int, default=None,help="Number of CPUs requested [Default: all available CPUs]")
-    parser.add_argument("--chunk_factor", dest="chunk_factor", type=int, default=1,help="Multiply CPU count by chunk_factor when calculating chunk_size (higher value, smaller chunks)")
 
     return parser.parse_args()
 
-def generate_pileup(bam_file,fasta_file,mapq,baseq,adj_coef,pileup_path):
+def write_contig_bed(contigs, contig_lengths, bed_path):
+    with open(bed_path, "w") as bed:
+        for contig in contigs:
+            length = contig_lengths.get(contig)
+            if length is not None:
+                bed.write(f"{contig}\t0\t{length}\n")
+            else:
+                sys.exit(f"ERROR: contig '{contig}' not found in contig_lengths")
+                continue
+    return bed_path
 
+
+def run_mpileup_chunk(bam_file, fasta_file, mapq, baseq, adj_coef, bed_file, temp_file):
+    
     cmd = (
-        f"samtools mpileup -q {mapq} -Q {baseq} -C {adj_coef} -f {fasta_file} --ff 3844 --no-output-ends --no-output-del {bam_file} "
+        f"samtools mpileup -q {mapq} -Q {baseq} -C {adj_coef} -f {fasta_file} --ff 3844 --no-output-ends --no-output-del -l {bed_file} {bam_file} "
         f"| awk 'NF >= 4'"
     )
 
-    with open(pileup_path, "w") as pileup_file:
-        subprocess.run(
-            cmd,
-            shell=True,
-            check=True,
-            stdout=pileup_file,
-            text=True
-        )  
+    results = [] 
+    with subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as proc:
+        for line in proc.stdout:
+            parts = line.strip().split("\t")
+            if len(parts) < 5:
+                continue
+
+            row = {
+                "Scaffold": parts[0],
+                "Position": int(parts[1]),
+                "Ref_Base": parts[2],
+                "Coverage": int(parts[3]),
+                "Sample_Bases": parts[4],
+            }
+
+            for record in process_pileup_row(row):
+                results.append([
+                    record["contig_id"],
+                    record["contig_position"],
+                    record["depth"],
+                    record["base"],
+                    record["frequency"],
+                ])
+
+        stderr = proc.stderr.read()
+        returncode = proc.wait()
+
+    if returncode != 0:
+        raise RuntimeError(f"mpileup failed for {bed_file}:\n{stderr}")
+
+    os.remove(bed_file)
+
+    if results:
+        with lock, open(temp_file, "a", newline="") as out_f:
+            writer = csv.writer(out_f, delimiter="\t")
+            writer.writerows(results)
 
 def process_pileup_row(row):
-    contig, pos, ref_base, coverage, sample_bases = row.values
+    contig = row["Scaffold"]
+    pos = row["Position"]
+    ref_base = row["Ref_Base"]
+    sample_bases = row["Sample_Bases"]
+    depth = row["Coverage"]
 
-    freqs, depth = get_base_freqs(sample_bases, ref_base)
+    freqs, total_depth = get_base_freqs(sample_bases, ref_base)
 
     for base, freq in freqs.items():
         yield {
             "contig_id": contig,
-            "contig_position": int(pos),
-            "depth": int(depth),
+            "contig_position": pos,
+            "depth": total_depth,
             "base": base,
-            "frequency": float(freq)
+            "frequency": freq,
         }
 
 def get_base_freqs(sample_bases,ref_base):
@@ -92,42 +136,6 @@ def get_base_freqs(sample_bases,ref_base):
     freqs.update(indel_freqs)
 
     return freqs, depth
-
-def process_chunk(pileup_file,temp_file,start,end):
-
-    columns = ["Scaffold", "Position", "Ref_Base", "Coverage", "Sample_Bases", "Code"]
-    chunk_df = pd.read_csv(
-        pileup_file,
-        sep="\t",
-        header=None,
-        names=columns,
-        skiprows=start,
-        nrows=end-start,
-        dtype={
-            "Scaffold": str,
-            "Position": int,
-            "Ref_Base": str,
-            "Coverage": int,
-            "Sample_Bases": str,
-            "Code": str
-        }
-    ).drop(columns=["Code"])
-
-    records = []
-    for _, row in chunk_df.iterrows():
-        for record in process_pileup_row(row):
-            records.append([
-                record["contig_id"],
-                record["contig_position"],
-                record["depth"],
-                record["base"],
-                record["frequency"]
-            ])
-
-    with lock:
-        with open(temp_file, "a", newline="") as out_f:
-            writer = csv.writer(out_f, delimiter="\t")
-            writer.writerows(records)
 
 def compute_depth_stats(temp_file):
 
@@ -217,7 +225,6 @@ user_cpu = args.user_cpu if args.user_cpu else os.cpu_count()
 mapq = args.mapq
 baseq = args.baseq
 adj_coef = args.adj_coef
-chunk_factor = args.chunk_factor
 
 fasta_file = os.path.abspath(args.fasta_file)
 if not os.path.exists(fasta_file):
@@ -252,54 +259,68 @@ if not raw_records:
 raw_records = natsorted(raw_records, key=lambda x: x[0])    
 
 total_sites = sum(len(seq) for _, seq in raw_records)
+
 contig_ids = [rec_id.strip().split()[0] for rec_id, _ in raw_records]
 contig_map = {v: k for k, v in enumerate(contig_ids)}
+reverse_map = {k: v for k, v in enumerate(contig_ids)}
 
 # endregion
 
 # region 02: Process BAM into pileup
 
-pileup_file = os.path.join(data_dir,sample_name+".pileup")
-if os.path.exists(pileup_file):
-    sys.exit(f"{pileup_file} already exists...")    
+# Chunk out contigs by length
+contig_lengths = {rec_id.strip().split()[0] : len(seq) for rec_id, seq in raw_records}
 
-generate_pileup(bam_file,fasta_file,mapq,baseq,adj_coef,pileup_file)
+contig_count = len(contig_ids)
+n_chunks = min(contig_count, user_cpu)
+chunk_size = (contig_count + n_chunks - 1) // n_chunks
 
-with open(pileup_file, "r") as f:
+len_sorted_records = sorted(raw_records, key=lambda x: len(x[1]), reverse=True)
+len_sorted_contig_ids = [rec_id.strip().split()[0] for rec_id, _ in len_sorted_records]
+contig_chunks = [[] for _ in range(n_chunks)]
+
+for i, contig in enumerate(len_sorted_contig_ids):
+    contig_chunks[i % n_chunks].append(contig)
+
+# Create BED files for mpileup
+temp_beds = []
+for i, chunk in enumerate(contig_chunks):
+    bed_path = os.path.join(data_dir,sample_name+f"_tmp_{i}.bed")
+    write_contig_bed(chunk, contig_lengths, bed_path)
+    temp_beds.append(bed_path)
+
+# Process pileup in parallel
+temp_file = os.path.join(data_dir,sample_name+"_Temp.tsv")
+with open(temp_file, "w", newline="") as out_f:
+    writer = csv.writer(out_f, delimiter="\t")
+    writer.writerow(["contig_id", "contig_position", "depth", "base", "frequency"])
+
+with ProcessPoolExecutor(max_workers=user_cpu) as executor:
+    futures = [
+        executor.submit(
+            run_mpileup_chunk,
+            bam_file,
+            fasta_file,
+            mapq,
+            baseq,
+            adj_coef,
+            bed_file,
+            temp_file
+        )
+        for bed_file in temp_beds
+    ]
+    for fut in futures:
+        try:
+            fut.result()
+        except Exception as e:
+            print(f"❌ Error in worker: {e}")
+
+with open(temp_file, "r") as f:
     line_count = sum(1 for _ in f)
 
 if line_count == 0:
     raise ValueError("Pileup file was empty.")
 
-# endregion
-
-# region 03: Process pileup in parallel
-temp_file = os.path.join(data_dir,sample_name+"_Temp.tsv")
-
-if os.path.exists(temp_file):
-    os.remove(temp_file)
-
-with open(temp_file, "w", newline="") as out_f:
-    writer = csv.writer(out_f, delimiter="\t")
-    writer.writerow(["contig_id", "contig_position", "depth", "base", "frequency"])
-
-n_chunks = min(line_count, user_cpu*chunk_factor)
-chunk_size = (line_count + n_chunks - 1) // n_chunks
-
-jobs = []
-for i in range(n_chunks):
-    start = i * chunk_size
-    end = min((i + 1) * chunk_size, line_count)
-    jobs.append((pileup_file,temp_file, start, end))
-
-with ProcessPoolExecutor(max_workers = user_cpu) as executor:
-    futures = [executor.submit(process_chunk, pileup,temp,start, end) for pileup,temp, start, end in jobs]
-    for future in as_completed(futures):
-        try:
-            future.result()
-        except Exception as e:
-            print(f"Error in worker: {e}")
-        
 # endregion
 
 # region 04: Summarize and save 
@@ -328,6 +349,5 @@ except Exception as e:
     raise e
 else:
     os.remove(temp_file)
-    os.remove(pileup_file)
 
 # endregion
