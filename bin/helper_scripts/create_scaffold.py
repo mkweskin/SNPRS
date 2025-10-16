@@ -1,20 +1,22 @@
 import sys
 import polars as pl
 import os
-import json
 from natsort import natsorted
 import pyarrow.parquet as pq
-import psutil
+import argparse
+import shutil
+import subprocess
+import csv
 
-def print_memory_usage():
-    process = psutil.Process(os.getpid())
-    mem = process.memory_info().rss / (1024 * 1024)  # in MiB
-    print(f"🔍 Memory usage: {mem:.2f} MiB")
+def parse_args():
+    parser = argparse.ArgumentParser(description="Create scaffold parquet from called base files")
     
+    parser.add_argument("--called_bases", dest="called_base_file", type=str, required=True,help="File with paths to 2+ Called_Bases parquet")
+    parser.add_argument("--join_id", dest="join_id", type=str, required=True,help="Prefix for output files")
+    parser.add_argument("--out_dir", dest="output_directory", type=str, default=None,help="Path to output Parquet files [Default: cwd]")
+    return parser.parse_args()
+
 def fetch_base_parquets(file_path):
-    if not os.path.isfile(file_path):
-        print(f"Error: Input file '{file_path}' does not exist.")
-        sys.exit(1)
 
     with open(file_path, "r") as f:
         paths = [line.strip() for line in f if line.strip()]
@@ -29,68 +31,93 @@ def fetch_base_parquets(file_path):
 
     return [os.path.abspath(path) for path in paths]
 
-def write_scaffold_parquet(output_directory,temp_directory,sorted_samples,sorted_parquet_paths,analysis_name):
+def get_scaffold_sites(temp_directory,sorted_parquet_paths):
     
-    scaffold_parquet = os.path.join(output_directory,f"{analysis_name}_Scaffold.parquet")
-    chunk_json = os.path.join(temp_directory,"Full_Chunks.json")
+    tmp_file = os.path.join(temp_directory, "Temp.parquet")
+    stage_file = os.path.join(temp_directory, "Stage.parquet")
+
+    valid_sites = [0, 1, 3, 4]
+
+    (
+        pl.scan_parquet(sorted_parquet_paths[0])
+        .filter(pl.col("type").is_in(valid_sites))
+        .select(["contig_index", "contig_position"])
+        .unique()
+        .sink_parquet(tmp_file)
+    )
+
+    for path in sorted_parquet_paths[1:]:
+        lazy_scaffold = pl.scan_parquet(tmp_file)
+        lazy_new = (
+            pl.scan_parquet(path)
+            .filter(pl.col("type").is_in(valid_sites))
+            .select(["contig_index", "contig_position"])
+        )
+
+        (
+            pl.concat([lazy_scaffold, lazy_new])
+            .unique()
+            .sink_parquet(stage_file)
+        )
+
+        shutil.move(stage_file, tmp_file)
+
+    return tmp_file
+
+def save_scaffold_parquet(output_parquet,temp_parquet):
     
-    scaffold = ( pl.scan_parquet(sorted_parquet_paths[0]) .filter(pl.col("type").is_in([0, 1, 4])) .select(["contig_index", "contig_position"]) .unique() .collect() ) 
-    
-    for path in sorted_parquet_paths[1:]: 
-        df = ( pl.scan_parquet(path) .filter(pl.col("type").is_in([0, 1, 4])) 
-              .select(["contig_index", "contig_position"]) 
-              .unique() 
-              .collect() 
-              ) 
-        new_rows = df.join(scaffold, on=["contig_index", "contig_position"], how="anti") 
-        if new_rows.height > 0: 
-            scaffold = pl.concat([scaffold, new_rows]) 
-                
-    scaffold.sort(['contig_index','contig_position']).write_parquet(scaffold_parquet)
+    (
+        pl.scan_parquet(temp_parquet)
+        .sort(['contig_index','contig_position'])
+        .sink_parquet(output_parquet,compression = "snappy")
+    )
 
-    site_count = scaffold.height
-    n_chunks = min(site_count, os.cpu_count()*4)
-    chunk_size = max(1, site_count // n_chunks)
-    remainder = site_count % n_chunks
+# region 00: Parse args and set up directories
+args = parse_args()
 
-    chunk_coords = []
-    start = 0
-    for i in range(n_chunks):
-        size = chunk_size + (1 if i < remainder else 0)
-        end = start + size
-        chunk_coords.append((start, end))
-        start = end
+join_id = str(args.join_id)
 
-    if len(chunk_coords) >= 2:
-        first_size = chunk_coords[0][1] - chunk_coords[0][0]
-        last_size = chunk_coords[-1][1] - chunk_coords[-1][0]
-        if last_size < 0.25 * first_size:
-            prev_start, _ = chunk_coords[-2]
-            _, last_end = chunk_coords[-1]
-            chunk_coords = chunk_coords[:-2] + [(prev_start, last_end)]
+# Output directory
+if args.output_directory is None:
+    output_directory = os.getcwd()
+else:
+    output_directory = os.path.abspath(args.output_directory)
+if not os.path.exists(output_directory):
+    sys.exit(f"{output_directory} (--out_dir) does not exist")
 
-    chunk_indexes = list(enumerate(chunk_coords))
+# Temp directory
+temp_directory = os.path.join(output_directory,f"Temp_{join_id}")
+if os.path.exists(temp_directory):
+    shutil.rmtree(temp_directory)
+os.mkdir(temp_directory)
 
-    with open(chunk_json, "w") as f:
-        json.dump(chunk_indexes, f)
-        
-    output = {
-    "scaffold_parquet":scaffold_parquet,
-    "chunk_indexes": chunk_json,
-    "sorted_samples":sorted_samples,
-    "sorted_parquets":sorted_parquet_paths
-    }
+# Called Bases
+called_base_file = os.path.abspath(args.called_base_file)
+if not os.path.exists(called_base_file):
+    sys.exit(f"{called_base_file} (--called_bases) does not exist")
 
-    print(json.dumps(output)) 
+# Output parquet
+output_parquet = os.path.join(output_directory,f"{join_id}_Scaffold.parquet")
+if os.path.exists(output_parquet):
+    sys.exit(f"{output_parquet} already exists")
 
-if __name__ == "__main__":
-    parquet_path_file,output_directory,temp_directory,analysis_name = sys.argv[1], sys.argv[2],sys.argv[3],sys.argv[4]
-    
-    parquet_files = fetch_base_parquets(parquet_path_file)
+# endregion
 
-    sample_id_paths = [(os.path.basename(path).replace("_Called.parquet", ""), path) for path in parquet_files]
-    sorted_path_sample_pairs = natsorted(sample_id_paths, key=lambda x: x[0])
-    sorted_samples, sorted_parquet_paths = zip(*sorted_path_sample_pairs)
-    
-    write_scaffold_parquet(output_directory,temp_directory,sorted_samples,sorted_parquet_paths,analysis_name)
+# region 01: Fetch called base files
 
+called_base_files = fetch_base_parquets(called_base_file)
+sample_id_paths = [(os.path.basename(path).replace("_Called.parquet", ""), path) for path in called_base_files]
+sorted_path_sample_pairs = natsorted(sample_id_paths, key=lambda x: x[0])
+sorted_samples, sorted_parquet_paths = zip(*sorted_path_sample_pairs)
+
+# endregion
+
+# region 02: Save scaffold file
+
+try:
+    temp_parquet = get_scaffold_sites(temp_directory,sorted_parquet_paths)
+    save_scaffold_parquet(output_parquet, temp_parquet)
+finally:
+    shutil.rmtree(temp_directory)
+
+# endregion

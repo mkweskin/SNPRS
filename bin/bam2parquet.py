@@ -332,6 +332,7 @@ freq_stats = compute_freq_stats(temp_file)
 metadata = {
     "sample_id": sample_name,
     "bam_file": bam_file,
+    "sample_parquet": parquet_file,
     "reference_genome": fasta_file,
     "percent_covered": percent_covered,
     "paired_end":"TRUE" if paired else "FALSE",

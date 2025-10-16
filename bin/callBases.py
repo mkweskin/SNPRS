@@ -27,7 +27,7 @@ def parse_args():
     parser.add_argument('-min_support',dest="allele_cov", type=int,default=2, help="Minimum read depth to consider an allele [Default: 2]")
     parser.add_argument('-min_freq',dest="min_freq", type=float,default=0.15, help="Minimum allele frequency to consider an alternative allele [Default: 0.15]")
     parser.add_argument('-max_alleles',dest="max_alleles", type=int,default=2, help="Maximum number of alleles above min_freq allowed [Default: 2 (diploid)]")
-
+    # ADD ARG TO INCLUDE PLOIDY FAIL
     return parser.parse_args()
 
 def make_degen_dict():

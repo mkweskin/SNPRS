@@ -10,6 +10,7 @@ channel_priority: strict
 dependencies:
   - python=3.8.1
   - psutil
+  - coreutils
   - bedtools
   - pybedtools
   - bowtie2

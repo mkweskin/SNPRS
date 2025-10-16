@@ -8,7 +8,7 @@ workflow joinCalledBases{
     take:
     called_bases_data
     pangenome_info
-    output_dir
+    joined_dir
     join_id
 
     emit:
@@ -16,35 +16,45 @@ workflow joinCalledBases{
 
     main:
     
-    head_output_dir = CHECK_OUTPUT_DIR(output_dir,join_id) | splitCsv | collect | flatten | collate(2) | first
-    prep_join = pangenome_info.combine(head_output_dir)
-    combined = called_bases_data.combine(prep_join)
+    join_info = PREP_JOIN_DIR(joined_dir,join_id) | splitCsv | collect | flatten | collate(2)
     
-    called_base_file = SAVE_CALLED_BASE_FILE(combined) | first
+    called_base_file = called_bases_data.combine(join_info) | SAVE_CALLED_BASE_FILE | collect | map { it[0] }
+    
+    scaffold_parquet = CREATE_SCAFFOLD(called_base_file,join_info) | collect | map { it[0] }
+    
+    prep_scaffold = join_info.combine(scaffold_parquet)
+    random_sample = called_bases_data.combine(prep_scaffold) | SCAFFOLD_SAMPLE | collect | map { it[0] }
+    
+    prep_base = join_info.combine(random_sample)
+    joined_data = CREATE_BASE_PARQUET(prep_base) | collect | map { it[0] }
 
-
-    joined_data = JOIN_CALLED_BASES(called_base_file,prep_join) | splitCsv
+    //joined_data = JOIN_CALLED_BASES(called_base_file,scaffold_parquet,prep_join) | splitCsv
 }
 
-process CHECK_OUTPUT_DIR{
+process PREP_JOIN_DIR{
     
     executor = "local"
     cpus 1
 
     input:
-    val(output_dir)
+    val(joined_dir)
     val(join_id)
 
     output:
     stdout
 
     script:
-    def join_dir = file("${output_dir}/${join_id}")
+    def join_dir = file("${joined_dir}/${join_id}")
     def delete_cmd = (params.overwrite) ? "rm -rf $join_dir" : ":"
+
+    if(!params.overwrite && file(join_dir).isDirectory()){
+        error "$join_dir already exists, use --overwrite to remove existing directory..."
+    }
 
     """
     $delete_cmd &&
-    echo -n $output_dir,$join_id
+    mkdir -p $join_dir &&
+    echo -n $join_id,$join_dir
     """
 }
 
@@ -54,47 +64,96 @@ process SAVE_CALLED_BASE_FILE{
     cpus 1
 
     input:
-    tuple val(sample_id),val(called_base_path),val(pg_name),val(pg_fasta),val(head_output_dir),val(join_id)
+    tuple val(sample_id),val(called_base_path),val(join_id),val(join_dir)
 
     output:
     stdout
 
     script:
-    def join_dir = file("${head_output_dir}/${join_id}")
     def called_base_file = file("${join_dir}/${join_id}_Called_Bases.txt")
 
-    if(params.validate && !params.overwrite && file(join_dir).isDirectory()){
-        error "Running in validation mode without --overwrite set, but ${join_dir} exists..."
-    }
-
     """
-    mkdir -p $join_dir &&
     echo "$called_base_path" >> $called_base_file
     echo -n $called_base_file 
     """
 }
 
-process JOIN_CALLED_BASES{
+process CREATE_SCAFFOLD{
     cpus cpu
 
     input:
     val(called_base_file)
-    tuple val(pg_name),val(pg_fasta),val(head_output_dir),val(join_id)
+    tuple val(join_id),val(join_dir)
 
     output:
     stdout
 
     script:
 
-    def join_script = file("${projectDir}/bin/join_parquets.py")
-    def base_file = file(called_base_file)
-    def join_dir = file("${head_output_dir}/${join_id}")
+    def scaffold_script = file("${projectDir}/bin/helper_scripts/create_scaffold.py")
+    def scaffold_parquet = file("${join_dir}/${join_id}_Scaffold.parquet")
+    def base_call_summary = file("${join_dir}/${join_id}_Site_Counts.tsv")
 
     """
-    python $join_script -b $base_file -n $join_id -o $join_dir &&
-    echo -n "$join_id,$join_dir"
+    python $scaffold_script --called_bases $called_base_file --join_id $join_id --out_dir $join_dir &&
+    echo "Sample_ID\tFixed_Bases\tFixed_Gaps\tHet_Bases\tHet_Gap\tUncovered\tFiltered" > $base_call_summary &&
+    echo -n "$scaffold_parquet"
     """
 }
+
+process SCAFFOLD_SAMPLE{
+    cpus cpu
+
+    input:
+    tuple val(sample_id),val(called_base_path),val(join_id),val(join_dir),val(scaffold_parquet)
+
+    output:
+    stdout
+
+    script:
+
+    def scaffold_sample_script = file("${projectDir}/bin/helper_scripts/scaffold_sample.py")
+    def sample_scaffold_file = file("${join_dir}/Scaffolded_${sample_id}.parquet")
+
+    def delete_cmd = (params.overwrite) ? "rm -f $sample_scaffold_file" : ":"
+
+    """
+    $delete_cmd &&
+    python $scaffold_sample_script --called_bases $called_base_path --join_id $join_id --out_dir $join_dir --scaffold $scaffold_parquet &&
+    echo -n "${sample_id}"
+    """
+}
+
+process CREATE_BASE_PARQUET{
+    cpus cpu
+
+    input:
+    tuple val(join_id),val(join_dir),val(random_sample)
+
+    output:
+    stdout
+
+    script:
+
+    def base_parquet_script = file("${projectDir}/bin/helper_scripts/compile_bases.py")
+    def base_parquet = file("${join_dir}/${join_id}_Bases.parquet")
+
+    def delete_cmd = (params.overwrite) ? "rm -f $base_parquet" : ":"
+
+    """
+    $delete_cmd &&
+    python $base_parquet_script --out_dir $join_dir --join_id $join_id &&
+    echo -n "${base_parquet}"
+    """
+}
+
+
+
+
+
+
+
+//////////////////////////////////////////////////////////////////////
 
 workflow fetchJoin{
 
@@ -107,6 +166,10 @@ workflow fetchJoin{
     main:
     join_info = FETCH_JOIN(join_dir) | splitCsv()
 }
+
+
+
+//// REDO ////
 
 process FETCH_JOIN{
     
