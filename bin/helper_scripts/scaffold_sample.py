@@ -59,6 +59,11 @@ def save_sample_parquet(raw_sample_parquet, called_base_parquet, scaffold_parque
     called_rows = (
         lazy_scaffold
         .join(lazy_called, on=['contig_index','contig_position'])
+        .with_columns(
+           pl.when(pl.col("type") == 4)
+          .then(pl.col("final_base").str.to_lowercase())
+          .otherwise(pl.col("final_base"))
+          .alias("final_base"))
         .select(['contig_index','contig_position','final_base','type'])
         .rename({"final_base": sample_id})
         .with_columns(pl.col("type").cast(pl.Int32))

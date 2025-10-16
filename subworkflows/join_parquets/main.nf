@@ -26,9 +26,12 @@ workflow joinCalledBases{
     random_sample = called_bases_data.combine(prep_scaffold) | SCAFFOLD_SAMPLE | collect | map { it[0] }
     
     prep_base = join_info.combine(random_sample)
-    joined_data = CREATE_BASE_PARQUET(prep_base) | collect | map { it[0] }
+    base_parquet = CREATE_BASE_PARQUET(prep_base) | collect | map { it[0] }
 
-    //joined_data = JOIN_CALLED_BASES(called_base_file,scaffold_parquet,prep_join) | splitCsv
+    parquet_files = scaffold_parquet.combine(base_parquet)
+    prep_code = join_info.combine(parquet_files)
+    
+    joined_data = SCORE_SITES(prep_code) | splitCsv | collect | flatten | collate(2)
 }
 
 process PREP_JOIN_DIR{
@@ -147,7 +150,31 @@ process CREATE_BASE_PARQUET{
     """
 }
 
+process SCORE_SITES{
+    cpus cpu
 
+    input:
+    tuple val(join_id),val(join_dir),val(scaffold_file),val(base_file)
+
+    output:
+    stdout
+
+    script:
+
+    def score_site_script = file("${projectDir}/bin/helper_scripts/score_sites.py")
+
+    def site_parquet = file("${join_dir}/${join_id}_Sites.parquet")
+    def code_parquet = file("${join_dir}/${join_id}_Codes.parquet")
+    def missing_tsv = file("${join_dir}/${join_id}_Missing.tsv")
+
+    def delete_cmd = (params.overwrite) ? "rm -f $site_parquet $code_parquet $missing_tsv" : ":"
+
+    """
+    $delete_cmd &&
+    python $score_site_script --out_dir $join_dir --join_id $join_id --bases $base_file --scaffold $scaffold_file &&
+    echo -n "${join_id},${join_dir}"
+    """
+}
 
 
 
@@ -194,12 +221,13 @@ process FETCH_JOIN{
     cd $join_dir
 
     suffixes=(
-      "_Bases.parquet"
       "_Called_Bases.txt"
-      "_Codes.parquet"
-      "_Missing.tsv"
       "_Scaffold.parquet"
+      "_Bases.parquet"
+      "_Codes.parquet"
       "_Sites.parquet"
+      "_Site_Counts.tsv"
+      "_Missing.tsv"
     )
 
     prefixes=()
