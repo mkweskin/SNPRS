@@ -31,7 +31,7 @@ workflow joinCalledBases{
     parquet_files = scaffold_parquet.combine(base_parquet)
     prep_code = join_info.combine(parquet_files)
     
-    joined_data = SCORE_SITES(prep_code) | splitCsv | collect | flatten | collate(2)
+    joined_data = SCORE_SITES(prep_code) | splitCsv
 }
 
 process PREP_JOIN_DIR{
@@ -177,9 +177,6 @@ process SCORE_SITES{
 }
 
 
-
-
-
 //////////////////////////////////////////////////////////////////////
 
 workflow fetchJoin{
@@ -194,9 +191,6 @@ workflow fetchJoin{
     join_info = FETCH_JOIN(join_dir) | splitCsv()
 }
 
-
-
-//// REDO ////
 
 process FETCH_JOIN{
     
