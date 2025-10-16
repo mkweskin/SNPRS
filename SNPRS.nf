@@ -218,8 +218,8 @@ workflow{
                 bam_data = existing_bam_data.concat(new_bam_data) 
             }
 
-            // Get raw parquets
-            existing_parquet_data = (params.raw_parquet && !params.validate) ? fetchRawParquet(params.raw_parquet) : Channel.empty()
+           // Get raw parquets
+            existing_parquet_data = (params.raw_parquets && !params.validate) ? fetchRawParquet(params.raw_parquets) : Channel.empty()
             new_parquet_data = (pangenome_info && bam_data) ? bamToParquet(bam_data,pangenome_info,current_mapping_directory) : Channel.empty()
             raw_parquet_data = existing_parquet_data.concat(new_parquet_data)
 
@@ -228,7 +228,7 @@ workflow{
             } else{
                 raw_parquet_data = existing_parquet_data.concat(new_parquet_data)
             }
-
+     
             // Get called bases
             existing_called_base_data = (params.called_bases && !params.validate) ? fetchCalledBases(params.called_bases) : Channel.empty()
             new_called_base_data = (pangenome_info && raw_parquet_data) ? callBases(raw_parquet_data,pangenome_info,current_mapping_directory) : Channel.empty()
@@ -253,10 +253,9 @@ workflow{
         filtered_data = (pangenome_info && params.filtered) ? fetchFiltered(filtered_path) : Channel.empty()
     }
 
+    /*
     // Generate tree from filtered data if requested
     if((params.tree || params.validate) && filtered_data){
         tree_data = generateTree(filtered_data)
-    }
+    }*/
 }
-
-

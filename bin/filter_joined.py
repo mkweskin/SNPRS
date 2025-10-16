@@ -26,17 +26,19 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Filter SNPRS output")
     
     # Data args
-    parser.add_argument("--joined", dest="joined_dir", type=str, required=True,help="Path to directory containing joined output (Bases/Scaffold/Codes/Sites/Missing)")
+    parser.add_argument("--join_dir", dest="joined_dir", type=str, required=True,help="Path to directory containing joined output (Bases/Scaffold/Codes/Sites/Missing)")
+    parser.add_argument("--out_dir", dest="output_directory", type=str, required=True,help="Path to store output files and temp directory")
+    parser.add_argument("--filter_id", dest="filter_id", type=str, required=True,help="Output prefix [Default: <ANALYSIS_NAME>_{timestamp}]")
+    parser.add_argument("--join_id", dest="join_id", type=str, required=True,help="Output prefix [Default: <ANALYSIS_NAME>_{timestamp}]")
     parser.add_argument("--fasta", dest="ref_fasta", type=str, required=True,help="Path to associated reference assembly")
-    parser.add_argument("--out", dest="output_directory", type=str, required=True,help="Path to store output files and temp directory")
-    parser.add_argument("--name", dest="filter_name", type=str, required=True,help="Output prefix [Default: <ANALYSIS_NAME>_{timestamp}]")
     
     # Filter args
-    parser.add_argument("--types", dest="site_types", type=str, default='btqp',help="String of single letter codes for sites requested: F/f: Fixed; B/b: Biallelic; T/t: Triallelic; Q/q: Quadallelic; P/p: Pentallellic; S/s: Singleton-only")
-    parser.add_argument("--gaps", dest="include_gaps", action="store_true",help="Include positions where 1+ samples has a gap (-) [Default: FALSE]")
+    parser.add_argument("--types", dest="site_types", type=str, default='btqp',help="String of single letter codes for sites requested: F/f: Fixed; B/b: Biallelic; T/t: Triallelic; Q/q: Quadallelic; P/p: Pentallellic; S/s: Singleton-only; U/u: Unique singletons (Fixed + Singletons)")
+    parser.add_argument("--no_gaps", dest="remove_gaps", action="store_true",help="Remove positions where any sample has a gap (-) [Default: FALSE]")
+    parser.add_argument("--no_sing", dest="no_singletons", action="store_true",help="Remove positions where any sample has a singleton [Default: FALSE; Overridden if S/S or U/u included in --types]")
+
     parser.add_argument("--het", dest="include_hets", action="store_true",help="Include positions where 1+ samples has a heterozygous base call [Default: FALSE]")
     parser.add_argument("--invalid", dest="include_invalid", action="store_true",help="Include positions where 1+ samples has an invalid base call [Default: FALSE]")
-    parser.add_argument("--nosing", dest="no_singletons", action="store_true",help="Do not include sites if any sample has a singleton allele [Default: FALSE]")
     parser.add_argument("--missing", dest="missing", type=float, default=None,help="If >= 1, max number of samples allowed with missing data. If < 1, the minimum proportion of samples with data required. [Default: Estimate from data]")
 
     return parser.parse_args()

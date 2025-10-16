@@ -41,20 +41,22 @@ process FILTER_JOINED{
     def output_fasta = file("${filter_directory}/${filter_id}_aln.fasta")
     def output_json = file("${filter_directory}/${filter_id}.json")
 
-    def site_types = (params.site_types) ? "${params.site_types}" : "btqp"
+    def site_types = "${params.site_types}"
 
     // Flags
-    def gap_arg = (params.gaps) ? "--gaps" : ""
+    def gap_arg = (params.no_gaps) ? "--no_gaps" : ""
+    def sing_arg = (params.no_sing) ? "--no_sing" : ""
+
     def het_arg = (params.het) ? "--het" : ""
     def invalid_arg = (params.invalid) ? "--invalid" : ""
-    def nosing_arg = (params.nosing) ? "--nosing" : ""
+
     def missing_arg = (params.missing != false) ? "--missing ${params.missing}" : ""
 
     def delete_cmd = (params.overwrite) ? "rm -rf $filter_directory" : ":"
     """
     $delete_cmd &&
     mkdir $filter_directory &&
-    python $filter_script --joined $joined_directory --fasta $ref_fasta --out $filter_directory --name $filter_id --types $site_types $gap_arg $het_arg $invalid_arg $nosing_arg $missing_arg &&
+    python $filter_script --join_dir $joined_directory --out_dir $filter_directory --filter_id $filter_id --join_id $join_id --fasta $ref_fasta --types $site_types $gap_arg $het_arg $invalid_arg $nosing_arg $missing_arg &&
     echo -n "${filter_id},${filter_directory},${output_json},${output_fasta}"
     """
 }
