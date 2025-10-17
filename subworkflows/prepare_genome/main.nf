@@ -443,8 +443,12 @@ process CHECK_GENOME{
     
 
     """
+    TOTAL_MEM_MB=\$(free -m | awk '/^Mem:/{print \$2}')
+    XMX_MB=\$((TOTAL_MEM_MB * 70 / 100))
+    XMX_ARG="-Xmx\${XMX_MB}m"
+
     cd ${fasta_dir} &&
-    ${bbmap_cmd} &&
+    ${bbmap_cmd} \$XMX_ARG &&
     ${sam_cmd} &&
     ${idx_cmd} &&
     echo -n "${pg_name},${fasta_file}"

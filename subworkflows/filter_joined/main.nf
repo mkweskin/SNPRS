@@ -107,6 +107,6 @@ process FETCH_FILTERED{
         fi
     done
 
-    echo -n "${filter_id},${filtered_directory}
+    echo -n "${filter_id},${filtered_directory}"
     """
 }

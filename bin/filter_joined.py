@@ -263,22 +263,6 @@ def filter_sites(site_file,new_site_file,new_missing_file,final_filter_file):
 
     wide_df.select(nonzero_cols).sort("Missing").to_pandas().to_csv(new_missing_file, sep="\t", index=False)
 
-def make_alignment(base_file,row_file,output_fasta):
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    worker_script = os.path.join(script_dir, "helper_scripts/sites2align.py")
-    
-
-    cmd = ["python", worker_script,base_file,row_file,output_fasta]
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"Failed to filter valid site types.\n"
-            f"Command: {' '.join(cmd)}\n"
-            f"Return Code: {result.returncode}\n"
-            f"STDOUT:\n{result.stdout}\n"
-            f"STDERR:\n{result.stderr}"
-        )
-        
 ##### MAIN #####
 
 # region 00: Parse args and set up directories

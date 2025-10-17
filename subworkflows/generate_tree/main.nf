@@ -6,19 +6,14 @@ cpu = (params.validate || params.fast) ? 1 : params.cpus as Integer
 workflow generateTree{
     
     take:
-    filtered_data
+    input_data
 
     emit:
-    tree_data
+    tree_file
 
     main:
 
-    tree_type = (params.validate || params.fast) ? "fasttree" : "iqtree"
-
-    tree_data = filtered_data
-    .map{it-> tuple(it[0],it[1],it[3],"${tree_type}")} 
-    | GENERATE_TREE
-    | splitCsv
+    tree_file = GENERATE_TREE(input_data)
 }
 
 process GENERATE_TREE{
@@ -26,22 +21,24 @@ process GENERATE_TREE{
     cpus cpu
 
     input:
-    tuple val(filter_id),val(filter_directory),val(alignment),val(tree_type)
+    tuple val(input_id),val(input_dir),val(align_file)
 
     output:
     stdout
 
     script:
 
-    def tree_dir = ("${tree_type}" == "fasttree") ? file("${filter_directory}/FastTree") : file("${filter_directory}/iqTree")
-    
-    def tree_file = ("${tree_type}" == "fasttree") ? file("${tree_dir}/${filter_id}_FastTree.nwk") : file("${tree_dir}/${filter_id}.treefile")
-    def log_file = ("${tree_type}" == "fasttree") ? file("${tree_dir}/out_${filter_id}_FastTree") : file("${tree_dir}/out_${filter_id}_iqTree")
+    def alignment_file = file(align_file)
+    def tree_type = ((params.fast || params.validate)) ? "fasttree" : "iqtree"
+
+    def tree_dir = ("${tree_type}" == "fasttree") ? file("${input_dir}/FastTree") : file("${input_dir}/iqTree")
+    def tree_file = ("${tree_type}" == "fasttree") ? file("${tree_dir}/${input_id}_FastTree.nwk") : file("${tree_dir}/${input_id}.treefile")
+    def log_file = ("${tree_type}" == "fasttree") ? file("${tree_dir}/out_${input_id}_FastTree") : file("${tree_dir}/out_${input_id}_iqTree")
 
     def bb = params.bb as Integer
     def iqtree_model = (params.gtr) ? "-m GTR+G" : "-m MFP+MERGE"
 
-    def tree_cmd = ("${tree_type}" == "fasttree") ? "fasttree -nt -gtr -out $tree_file $alignment &> $log_file" : "iqtree -nt AUTO $iqtree_model -bb $bb -s $alignment --prefix $filter_id --keep-ident &> $log_file"
+    def tree_cmd = ("${tree_type}" == "fasttree") ? "fasttree -nt -gtr -out $tree_file $alignment_file &> $log_file" : "iqtree -nt AUTO $iqtree_model -bb $bb -s $alignment_file --prefix $input_id --keep-ident &> $log_file"
 
     def delete_cmd = (params.overwrite) ? "rm -rf $tree_dir" : ":"
 
@@ -54,6 +51,6 @@ process GENERATE_TREE{
     mkdir $tree_dir &&
     cd $tree_dir &&
     $tree_cmd &&
-    echo -n "${filter_id},${tree_file}"
+    echo -n "${tree_file}"
     """
 }
