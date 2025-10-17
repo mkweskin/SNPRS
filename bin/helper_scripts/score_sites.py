@@ -187,7 +187,7 @@ if os.path.exists(output_code_file):
 
 row_count = pq.ParquetFile(scaffold_file).metadata.num_rows
 
-if params.mem_mode:
+if args.mem_mode:
     n_chunks = min(row_count, (os.cpu_count()*40))
 else:
     n_chunks = min(row_count, (os.cpu_count()*4))

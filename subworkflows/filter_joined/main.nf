@@ -38,8 +38,6 @@ process FILTER_JOINED{
     def ref_fasta = file("${pg_fasta}")
     def joined_directory = file("${join_directory}")
     def filter_directory = file("${joined_directory}/${filter_id}")
-    def output_fasta = file("${filter_directory}/${filter_id}_aln.fasta")
-    def output_json = file("${filter_directory}/${filter_id}.json")
 
     def site_types = "${params.site_types}"
 
@@ -56,8 +54,8 @@ process FILTER_JOINED{
     """
     $delete_cmd &&
     mkdir $filter_directory &&
-    python $filter_script --join_dir $joined_directory --out_dir $filter_directory --filter_id $filter_id --join_id $join_id --fasta $ref_fasta --types $site_types $gap_arg $het_arg $invalid_arg $nosing_arg $missing_arg &&
-    echo -n "${filter_id},${filter_directory},${output_json},${output_fasta}"
+    python $filter_script --join_dir $joined_directory --out_dir $filter_directory --filter_id $filter_id --join_id $join_id --fasta $ref_fasta --types $site_types $gap_arg $het_arg $invalid_arg $sing_arg $missing_arg &&
+    echo -n "${filter_id},${filter_directory}"
     """
 }
 
@@ -98,17 +96,17 @@ process FETCH_FILTERED{
     def code_file = file("${filtered_directory}/${filter_id}_Codes.parquet")
     def scaffold_file = file("${filtered_directory}/${filter_id}_Scaffold.parquet")
     def site_file = file("${filtered_directory}/${filter_id}_Sites.parquet")
-    def output_fasta = file("${filtered_directory}/${filter_id}_aln.fasta")
     def output_json = file("${filtered_directory}/${filter_id}.json")
+    def missing_tsv = file("${filtered_directory}/${filter_id}_Missing.tsv")
     
     """
-    for f in "${base_file}" "${code_file}" "${scaffold_file}" "${site_file}" "${output_fasta}" "${output_json}" ; do
+    for f in "${base_file}" "${code_file}" "${scaffold_file}" "${site_file}" "${output_json}" "${missing_tsv}"; do
         if [ ! -s "\$f" ]; then
             echo "ERROR: Missing expected file: \$f" >&2
             exit 1
         fi
     done
 
-    echo -n "${filter_id},${filtered_directory},${output_json},${output_fasta}"  
+    echo -n "${filter_id},${filtered_directory}
     """
 }
