@@ -167,11 +167,13 @@ process SCORE_SITES{
     def code_parquet = file("${join_dir}/${join_id}_Codes.parquet")
     def missing_tsv = file("${join_dir}/${join_id}_Missing.tsv")
 
+    def mem_arg = (params.mem_mode) ? "--mem_mode" : ""
+
     def delete_cmd = (params.overwrite) ? "rm -f $site_parquet $code_parquet $missing_tsv" : ":"
 
     """
     $delete_cmd &&
-    python $score_site_script --out_dir $join_dir --join_id $join_id --bases $base_file --scaffold $scaffold_file &&
+    python $score_site_script --out_dir $join_dir --join_id $join_id --bases $base_file --scaffold $scaffold_file $mem_arg &
     echo -n "${join_id},${join_dir}"
     """
 }
@@ -215,12 +217,10 @@ process FETCH_JOIN{
     cd $join_dir
 
     suffixes=(
-      "_Called_Bases.txt"
       "_Scaffold.parquet"
       "_Bases.parquet"
       "_Codes.parquet"
       "_Sites.parquet"
-      "_Site_Counts.tsv"
       "_Missing.tsv"
     )
 

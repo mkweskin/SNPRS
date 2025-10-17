@@ -17,6 +17,8 @@ def parse_args():
     parser.add_argument("--bases", dest="base_file", type=str, required=True,help="Path to base parquet")
     parser.add_argument("--out_dir", dest="output_directory", type=str, default=None,help="Path to output Parquet files [Default: cwd]")
     parser.add_argument("--join_id", dest="join_id", type=str, required=True,help="Prefix for output files")
+    parser.add_argument("--mem_mode", dest="mem_mode", action = "store_true", help="Split chunks up 10X smaller than default")
+
     return parser.parse_args()
 
 # Site codes
@@ -184,7 +186,12 @@ if os.path.exists(output_code_file):
     sys.exit(f"{output_code_file} already exists...")
 
 row_count = pq.ParquetFile(scaffold_file).metadata.num_rows
-n_chunks = min(row_count, (os.cpu_count()*4))
+
+if params.mem_mode:
+    n_chunks = min(row_count, (os.cpu_count()*40))
+else:
+    n_chunks = min(row_count, (os.cpu_count()*4))
+
 chunk_size = (row_count + n_chunks - 1) // n_chunks
 
 jobs = []
