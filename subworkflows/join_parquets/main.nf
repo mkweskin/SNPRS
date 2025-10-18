@@ -105,6 +105,9 @@ process CREATE_SCAFFOLD{
 }
 
 process SCAFFOLD_SAMPLE{
+
+    tag "Scaffold_${sample_id}"
+
     cpus cpu
 
     input:
