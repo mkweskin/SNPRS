@@ -9,6 +9,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Print the header metadata from a parquet file")
     parser.add_argument("-p","--p", dest="parquet", type=str, required=True,help="Path to parquet file")
     parser.add_argument("-d","--d", dest="data", action="store_true",help="Preview the top 100 rows of the data table")
+    parser.add_argument("--idx", dest="idx",type=int,default = None, help="Preview the top 100 rows of the data table")
+    parser.add_argument("--pos", dest="pos",type=int, default = None,help="Preview the top 100 rows of the data table")
     return parser.parse_args()
 
 def parquet_preview(parquet_path,preview_data):
@@ -33,9 +35,38 @@ def parquet_preview(parquet_path,preview_data):
         print(f"\nTotal rows: {row_count}")
 
         head_df = lf.limit(25).collect()
+        #head_df = lf.filter(pl.col("base").cast(pl.Utf8).str.starts_with("+")).limit(25).collect()
+
         print("\nFirst 25 rows:")
         pl.Config.set_tbl_rows(25)
         print(head_df)
+
+        """
+        dup_rows = (
+            lf.join(
+            lf.group_by(["contig_index", "contig_position"])
+            .len()
+            .filter(pl.col("len") > 1),
+            on=["contig_index", "contig_position"],
+            how="inner"
+        )
+        ).limit(25).collect()
+
+        print("\nFirst 25 dup rows:")
+        pl.Config.set_tbl_rows(25)
+        print(dup_rows)
+        """
+        
+        if args.idx is not None and args.pos is not None:
+            filtered_df = (
+                lf.filter(
+                    (pl.col("contig_index") == args.idx) & (pl.col("contig_position") == args.pos)
+                )
+                .limit(25)
+                .collect()
+            )
+            print(filtered_df)
+
 
 args = parse_args()
 parquet_file = os.path.abspath(args.parquet)

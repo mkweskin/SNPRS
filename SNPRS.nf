@@ -102,6 +102,15 @@ if(!joined_directory.isDirectory()){
     tab_log("Found joining directory: ${joined_directory}...")
 }
 
+// SNP Directory
+snp_directory = file("${snprs_directory}/SNP_Analysis")
+if(!snp_directory.isDirectory()){
+    snp_directory.mkdirs() 
+    tab_log("Created SNP directory: ${snp_directory}...")
+} else{
+    tab_log("Found SNP directory: ${snp_directory}...")
+}
+
 // Join ID
 if(params.validate){
     join_id = "Validation"
@@ -149,6 +158,7 @@ validation_read_directory = file("${validation_directory}/Reads")
 
 current_joined_directory = (params.validate) ? file("${validation_directory}/Joined") : file("${joined_directory}/${pg_name}")
 current_mapping_directory = (params.validate) ? file("${validation_directory}/Mapping") : file("${mapping_directory}/${pg_name}")
+current_snp_directory = file("${snp_directory}/${pg_name}")
 
 include {assembleGenome} from "./subworkflows/prepare_genome/main.nf"
 include {prepareGenome} from "./subworkflows/prepare_genome/main.nf"
@@ -174,6 +184,8 @@ include {generateTree} from "./subworkflows/generate_tree/main.nf"
 
 workflow{
 
+    pangenome_info = Channel.empty()
+    
     // Assemble pangenome from reads
     if(params.pg_reads){
         pg_read_data = file(params.pg_reads)
@@ -189,11 +201,6 @@ workflow{
     // Specify pangenome by name (checks for fasta, fai, and ref in SNPRS_Pangenomes/PG_NAME)
     else if(params.pg_name){
         pangenome_info = checkSNPRSGenome(pangenome_directory,params.pg_name) | first
-    }
-
-    // No pangenome information provided
-    else {
-        pangenome_info = Channel.empty()
     }
 
     // Map reads, call bases, and join files unless already joined or filtered
