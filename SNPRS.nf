@@ -75,6 +75,7 @@ if (log_file.exists()) {
 
 // Major subdirectories
 
+// BEGIN DIRECTORY OVERHAUL
 // Pangenome Directory
 pangenome_directory = file("${snprs_directory}/SNPRS_Pangenomes")
 if(!pangenome_directory.isDirectory()){
