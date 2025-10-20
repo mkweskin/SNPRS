@@ -9,7 +9,7 @@ workflow mapReads{
 
     take:
     read_data
-    pangenome_info
+    genome_info
     mapping_directory
 
     emit:
@@ -17,13 +17,15 @@ workflow mapReads{
 
     main:
 
-    mapping_reads = FETCH_MAP_READS("${read_data}")
+    mapping_reads = genome_info
+    .map{it -> tuple(it[0],read_data,mapping_directory)}
+    | FETCH_MAP_READS
     | splitCsv
 
     if(file("${mapping_directory}/ref").isDirectory()){
         bbmap_ref = "${mapping_directory}/ref"
     } else{
-        bbmap_ref = pangenome_info.map{it->tuple(it[2],"${mapping_directory}")}
+        bbmap_ref = genome_info.map{it->tuple(it[2],"${mapping_directory}")}
         | BBMAP_INDEX
         | collect
         | map{it->it[0]}
@@ -39,7 +41,7 @@ process FETCH_MAP_READS{
     cpus = 1
 
     input:
-    val(read_data)
+    tuple val(genome_name),val(read_data)
 
     output:
     stdout

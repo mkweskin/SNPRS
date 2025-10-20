@@ -173,7 +173,7 @@ process SUBSET_READS {
 
     def forward_ext = "${params.pg_forward}"
     def reverse_ext = "${params.pg_reverse}"
-    def file_ext = "${params.pg_ext}"
+    def file_ext = "${params.pg_ext}".startsWith('.') ? params.pg_ext : ".${params.pg_ext}"
 
     def genome_directory = file("${genome_directory}")
     def genome_prep_directory = file("${genome_directory}/Prep_${genome_name}")
@@ -200,9 +200,21 @@ process SUBSET_READS {
     $link_cmd
     $reformat_cmd
 
-    has_content () {
-        zcat "\$1" 2>/dev/null | head -c 1 | grep -q .
+    has_content() {
+        local file="\$1"
+
+        if [[ ! -f "\$file" ]]; then
+            echo "Error: File '\$file' not found" >&2
+            return 1
+        fi
+
+        if [[ "\$file" == *.gz ]]; then
+            zcat -- "\$file" 2>/dev/null | head -c 1 | grep -q .
+        else
+            cat -- "\$file" 2>/dev/null | head -c 1 | grep -q .
+        fi
     }
+
     for f in ${out1} ${out2} ${outs}; do
         if [[ -f "\$f" ]] && ! has_content "\$f"; then
             rm -f "\$f"
@@ -229,7 +241,7 @@ process LINK_READS {
 
     def forward_ext = "${params.pg_forward}"
     def reverse_ext = "${params.pg_reverse}"
-    def file_ext = "${params.pg_ext}"
+    def file_ext = "${params.pg_ext}".startsWith('.') ? params.pg_ext : ".${params.pg_ext}"
 
     def genome_directory = file("${genome_directory}")
     def genome_prep_directory = file("${genome_directory}/Prep_${genome_name}")
