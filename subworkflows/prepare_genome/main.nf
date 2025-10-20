@@ -181,9 +181,9 @@ process SUBSET_READS {
 
     def genome_read_link_directory = file("${genome_directory}/Pangenome_Read_Links")
 
-    def out1 = "${subset_directory}/${subsample_id}_GenomeReads_1.fq.gz"
-    def out2 = "${subset_directory}/${subsample_id}_GenomeReads_2.fq.gz"
-    def outs = "${subset_directory}/${subsample_id}_GenomeReads_SE.fq.gz"
+    def out1 = "${subset_directory}/${subsample_id}_GenomeReads${forward_ext}"
+    def out2 = "${subset_directory}/${subsample_id}_GenomeReads${reverse_ext}"
+    def outs = "${subset_directory}/${subsample_id}_GenomeReads${file_ext}"
 
     def log_file = "${subset_directory}/out_Subsample_${sample_id}"
 
@@ -237,17 +237,9 @@ process LINK_READS {
 
     def genome_read_link_directory = file("${genome_directory}/Pangenome_Read_Links")
 
-    def out1 = forward.endsWith(".gz")
-    ? "${subset_directory}/${subsample_id}_GenomeReads_1.fq.gz"
-    : "${subset_directory}/${subsample_id}_GenomeReads_1.fastq"   
-        
-    def out2 = forward.endsWith(".gz")
-    ? "${subset_directory}/${subsample_id}_GenomeReads_2.fq.gz"
-    : "${subset_directory}/${subsample_id}_GenomeReads_2.fastq"
-
-    def outs = forward.endsWith(".gz")
-    ? "${subset_directory}/${subsample_id}_GenomeReads_SE.fq.gz"
-    : "${subset_directory}/${subsample_id}_GenomeReads_SE.fastq"
+    def out1 = "${subset_directory}/${subsample_id}_GenomeReads${forward_ext}"
+    def out2 = "${subset_directory}/${subsample_id}_GenomeReads${reverse_ext}"
+    def outs = "${subset_directory}/${subsample_id}_GenomeReads_SE${file_ext}"
 
     def link_cmd_1 = reverse
         ? "ln -s ${forward} ${out1}; ln -s ${reverse} ${out2}"

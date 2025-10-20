@@ -16,7 +16,7 @@ workflow filterJoined{
 
     filtered_data = pangenome_info
     .combine(joined_data)
-    .map{it-> tuple(it[0],it[1],it[2],it[3],filter_id)}
+    .map{it-> tuple(it[2],it[3],it[4],filter_id)}
     | FILTER_JOINED
     | splitCsv
     | collect | flatten | collate(4)
@@ -27,7 +27,7 @@ process FILTER_JOINED{
     cpus cpu
 
     input:
-    tuple val(pg_name),val(pg_fasta),val(join_id),val(join_directory),val(filter_id)
+    tuple val(genome_file),val(join_id),val(join_directory),val(filter_id)
 
     output:
     stdout
@@ -35,7 +35,7 @@ process FILTER_JOINED{
     script:
 
     def filter_script = file("${projectDir}/bin/filter_joined.py")
-    def ref_fasta = file("${pg_fasta}")
+    def ref_fasta = file("${genome_file}")
     def joined_directory = file("${join_directory}")
     def filter_directory = file("${joined_directory}/${filter_id}")
 

@@ -16,15 +16,20 @@ workflow mapReads{
     bam_data
 
     main:
-    
-    map_dir = "${mapping_directory}"
-    read_string = "${read_data}"
 
-    mapping_reads = pangenome_info.map{it -> tuple(it[0],it[1],read_string,map_dir)}
-    | FETCH_MAP_READS
+    mapping_reads = FETCH_MAP_READS("${read_data}")
     | splitCsv
 
-    bam_data = MAP_READS(mapping_reads,map_dir) 
+    if(file("${mapping_directory}/ref").isDirectory()){
+        bbmap_ref = "${mapping_directory}/ref"
+    } else{
+        bbmap_ref = pangenome_info.map{it->tuple(it[2],"${mapping_directory}")}
+        | BBMAP_INDEX
+        | collect
+        | map{it->it[0]}
+    }
+
+    bam_data = MAP_READS(mapping_reads,bbmap_ref,mapping_directory) 
     | splitCsv
 }
 
@@ -34,7 +39,7 @@ process FETCH_MAP_READS{
     cpus = 1
 
     input:
-    tuple val(pg_name),val(pg_fasta),val(read_data),val(mapping_directory)
+    val(read_data)
 
     output:
     stdout
@@ -42,11 +47,7 @@ process FETCH_MAP_READS{
     script:
 
     def fetchMapScript = file("${projectDir}/bin/fetchMappingReads.py")
-
-    def fasta_file = file("${pg_fasta}")
-    def fasta_dir = fasta_file.getParent()
-    def bbmap_ref = file("${fasta_dir}/ref")
-    
+ 
     def ext
     def forward
     def reverse
@@ -61,32 +62,42 @@ process FETCH_MAP_READS{
         reverse = "${params.map_reverse}"
     }
 
-    def existing_ref = file("${mapping_directory}/ref")
+    """
+    python ${fetchMapScript} -d ${read_data} -e $ext -f $forward -r $reverse
+    """
+}
+
+process BBMAP_INDEX{
     
+    cpus cpu
+
+    input:
+    tuple val(genome_file),val(mapping_directory)
+
+    output:
+    stdout
+
+    script:
+
+    def ref_directory = file("${mapping_directory}/ref")
+
     def bam_dir = file ("${mapping_directory}/BAMs")
     def parquet_dir = file ("${mapping_directory}/Raw_Parquet")
     def base_call_dir = file ("${mapping_directory}/Base_Calls")
 
-    if(params.validate && !params.overwrite && file(mapping_directory).isDirectory()){
-        error "Running in validation mode without --overwrite set, but ${mapping_directory} exists..."
-    }
-
-    // Clear validation folders if re-running
-    delete_cmd = (params.overwrite && params.validate) ? "rm -rf $mapping_directory $bam_dir $parquet_dir $base_call_dir" : ":"
-
+    def fasta_file = file("${genome_file}")
+    
     """
-    $delete_cmd &&
-    mkdir -p $mapping_directory &&
+    TOTAL_MEM_MB=\$(free -m | awk '/^Mem:/{print \$2}')
+    XMX_MB=\$((TOTAL_MEM_MB * 70 / 100))
+    XMX_ARG="-Xmx\${XMX_MB}m"
+
+    cd ${mapping_directory} &&
     mkdir -p $bam_dir &&
     mkdir -p $parquet_dir &&
     mkdir -p $base_call_dir &&
-    cd $mapping_directory
-
-    if [[ ! -d "${existing_ref}" ]]; then
-        cp -as ${bbmap_ref} .
-    fi
-
-    python ${fetchMapScript} -d ${read_data} -e $ext -f $forward -r $reverse
+    bbmap.sh threads=${cpu} ref=${fasta_file} \$XMX_ARG &&
+    echo -n $ref_directory
     """
 }
 
@@ -98,6 +109,7 @@ process MAP_READS{
 
     input:
     tuple val(sample_id),val(forward),val(reverse)
+    val(bbmap_ref)
     val(mapping_directory)
 
     output:
