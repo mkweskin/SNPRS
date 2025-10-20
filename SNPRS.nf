@@ -75,14 +75,13 @@ if (log_file.exists()) {
 
 // Major subdirectories
 
-// BEGIN DIRECTORY OVERHAUL
-// Pangenome Directory
-pangenome_directory = file("${snprs_directory}/SNPRS_Pangenomes")
-if(!pangenome_directory.isDirectory()){
-    pangenome_directory.mkdirs() 
-    tab_log("Created pangenome directory: ${pangenome_directory}...")
+// Genome Directory
+genome_directory = file("${snprs_directory}/Reference_Genome")
+if(!genome_directory.isDirectory()){
+    genome_directory.mkdirs() 
+    tab_log("Created reference genome directory: ${genome_directory}...")
 } else{
-    tab_log("Found pangenome directory: ${pangenome_directory}...")
+    tab_log("Found reference genome directory: ${genome_directory}...")
 }
 
 // Mapping Directory
@@ -110,6 +109,15 @@ if(!snp_directory.isDirectory()){
     tab_log("Created SNP directory: ${snp_directory}...")
 } else{
     tab_log("Found SNP directory: ${snp_directory}...")
+}
+
+// Fixed Directory
+fixed_directory = file("${snp_directory}/Fixed_Sites")
+if(!fixed_directory.isDirectory()){
+    fixed_directory.mkdirs() 
+    tab_log("Created fixed site directory: ${fixed_directory}...")
+} else{
+    tab_log("Found fixed site directory: ${fixed_directory}...")
 }
 
 // Join ID
@@ -144,26 +152,20 @@ if(!params.refine_id){
     refine_id = "${params.refine_id}"
 }
 
-// Check for validation mode
-if(params.validate){    
-    tab_log("Running in validation mode, pangenome reads will be mapped back onto the pangenome and joined into an alignment")
+// Genome Name
+if(params.fasta){
+    fasta_file = file(params.fasta)
+    genome_name = (params.genome_name) ? "${params.genome_name}" : fasta_file.getBaseName().replaceAll(/\.f(ast[an]?)(\.gz)?$/, '')
+} else if(params.genome_name){
+    genome_name = "${params.genome_name}"
+} else{
+    genome_name = "SNPRS_${timestamp}"
 }
 
-// Pangenome output infromation
-pg_name = (params.pg_name) ? "${params.pg_name}" : "SNPRS_${timestamp}"
-
-// Set relevant paths based on --pg_name
-current_pg_directory = file("${pangenome_directory}/${pg_name}")
-validation_directory = file("${current_pg_directory}/Validation")
-validation_read_directory = file("${validation_directory}/Reads")
-
-current_joined_directory = (params.validate) ? file("${validation_directory}/Joined") : file("${joined_directory}/${pg_name}")
-current_mapping_directory = (params.validate) ? file("${validation_directory}/Mapping") : file("${mapping_directory}/${pg_name}")
-current_snp_directory = file("${snp_directory}/${pg_name}")
-
+// Import workflows
 include {assembleGenome} from "./subworkflows/prepare_genome/main.nf"
-include {prepareGenome} from "./subworkflows/prepare_genome/main.nf"
-include {checkSNPRSGenome} from "./subworkflows/prepare_genome/main.nf"
+include {useFASTA} from "./subworkflows/prepare_genome/main.nf"
+include {checkGenomeDir} from "./subworkflows/prepare_genome/main.nf"
 
 include {mapReads} from "./subworkflows/mapping/main.nf"
 include {fetchBAM} from "./subworkflows/mapping/main.nf"
@@ -185,24 +187,76 @@ include {generateTree} from "./subworkflows/generate_tree/main.nf"
 
 workflow{
 
+    // Pangenome Info: 
+    // Genome Name, Directory, FASTA file
+
     pangenome_info = Channel.empty()
     
     // Assemble pangenome from reads
     if(params.pg_reads){
         pg_read_data = file(params.pg_reads)
-        pangenome_info = assembleGenome(pangenome_directory,pg_name,pg_read_data) | first
+        pangenome_info = assembleGenome(genome_directory,genome_name,pg_read_data) | first
     } 
 
-    // Get FASTA from --fasta (creates fai/ref in needed)
+    // Get reference information from an assembly
     else if(params.fasta){
         fasta_file = file(params.fasta)
-        pangenome_info = prepareGenome(fasta_file) | first
+        pangenome_info = useFASTA(genome_directory,genome_name,fasta_file) | first
     }
 
-    // Specify pangenome by name (checks for fasta, fai, and ref in SNPRS_Pangenomes/PG_NAME)
-    else if(params.pg_name){
-        pangenome_info = checkSNPRSGenome(pangenome_directory,params.pg_name) | first
+    // Get reference information from a folder
+    else{
+        genome_dir = (params.genome_dir) ? file(params.genome_dir) : genome_directory
+        pangenome_info = checkGenomeDir(genome_dir) | first
     }
+
+}
+
+/*
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     // Map reads, call bases, and join files unless already joined or filtered
     if(params.filtered){
@@ -278,3 +332,5 @@ workflow{
         }
     }
 }   
+
+*/

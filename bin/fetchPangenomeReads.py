@@ -113,7 +113,6 @@ def pair_reads(group_df, read_filetype, forward_suffix, reverse_suffix):
 
 parser = argparse.ArgumentParser(description='Fetch Reads')
 parser.add_argument('--read_dir',dest="read_dir",required=True, type=str, help='Path to directory containing nested read files')
-parser.add_argument('--val_dir',dest="val_dir", required=True,type=str, help='Path to soft link validation reads')
 parser.add_argument('--group',dest = "output",required=True, type=str, help='Path to group output csv')
 parser.add_argument('--ext',dest="read_filetype",default='fastq.gz', type=str, help='Read extension')
 parser.add_argument('--forward',dest = "forward_suffix",default='_1.fastq.gz', type=str, help='Forward suffix')
@@ -151,25 +150,6 @@ if not paired_df["Sample_ID"].is_unique:
 output_file = os.path.abspath(args.output)
 paired_df.to_csv(output_file, sep=",", index=False,header=False)
 
-# Soft link validation reads
-output_directory = os.path.abspath(args.val_dir)
-for _, row in paired_df.iterrows():
-    
-    sample_id = row["Sample_ID"]
-    fwd = row["Forward"]
-    rev = row["Reverse"]
-    
-    target_fwd = f"{output_directory}/{sample_id}{args.forward_suffix}"
-    target_rev = f"{output_directory}/{sample_id}{args.reverse_suffix}"
-    
-    if pd.notna(fwd) and pd.notna(rev) and fwd and rev:
-        os.symlink(fwd, target_fwd)
-        os.symlink(rev, target_rev)
-    elif pd.notna(fwd) and fwd:
-        os.symlink(fwd, target_fwd)
-    elif pd.notna(rev) and rev:
-        sys.exit("Reverse only read?")
-
-# Pass [Sample_ID,Group_0,Group_1,Forward,Reverse]data out to Nextflow
+# Pass [Sample_ID,Group_0,Group_1,Forward,Reverse] data out to Nextflow
 paired_df.to_csv(sys.stdout, sep=",", index=False, header=False)
 
