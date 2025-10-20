@@ -7,7 +7,6 @@ workflow joinCalledBases{
     
     take:
     called_bases_data
-    pangenome_info
     joined_dir
     join_id
 

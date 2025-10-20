@@ -164,6 +164,7 @@ samtools sort -@ ${sample_cpu} -o ${bam_file} - && samtools index -@ ${sample_cp
 
     """
     cd $mapping_directory &&
+    mkdir -p $bam_dir &&
     $delete_cmd &&
     $mapping_cmd &&
     echo -n "${sample_id},${bam_file}"

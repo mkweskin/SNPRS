@@ -9,14 +9,14 @@ workflow bamToParquet{
 
     take:
     bam_data
-    pangenome_info
+    genome_info
     mapping_directory
     
     emit:
     raw_parquet_data
 
     main:
-    raw_parquet_data = BAM_TO_PARQUET(bam_data,pangenome_info,mapping_directory) | splitCsv()
+    raw_parquet_data = BAM_TO_PARQUET(bam_data,genome_info,mapping_directory) | splitCsv()
 }
 
 process BAM_TO_PARQUET{
@@ -27,7 +27,7 @@ process BAM_TO_PARQUET{
 
     input:
     tuple val(sample_id),val(sample_bam)
-    tuple val(pg_name),val(fasta_path)
+    tuple val(genome_name),val(genome_dir),val(genome_file)
     val(mapping_directory)
 
     output:
@@ -55,7 +55,7 @@ fi"""
     """
     mkdir -p ${output_directory} &&
     $delete_cmd &&
-    python ${bam_convert_script} --bam ${sample_bam} --fasta ${fasta_path} --parquet ${output_file} --mapq ${mapq} --baseq ${baseq} --adj_coef ${adj_coef} &&
+    python ${bam_convert_script} --bam ${sample_bam} --fasta ${genome_file} --parquet ${output_file} --mapq ${mapq} --baseq ${baseq} --adj_coef ${adj_coef} &&
     echo -n "${sample_id},${output_file}"
     """
 }

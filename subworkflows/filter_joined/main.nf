@@ -5,7 +5,7 @@ cpu = params.cpus as Integer
 
 workflow filterJoined{
     take:
-    pangenome_info
+    genome_info
     joined_data
     filter_id
 
@@ -14,12 +14,12 @@ workflow filterJoined{
 
     main:
 
-    filtered_data = pangenome_info
+    filtered_data = genome_info
     .combine(joined_data)
     .map{it-> tuple(it[2],it[3],it[4],filter_id)}
     | FILTER_JOINED
     | splitCsv
-    | collect | flatten | collate(4)
+    | collect | flatten | collate(2)
 }
 
 process FILTER_JOINED{
@@ -50,7 +50,14 @@ process FILTER_JOINED{
 
     def missing_arg = (params.missing != false) ? "--missing ${params.missing}" : ""
 
-    def delete_cmd = (params.overwrite) ? "rm -rf $filter_directory" : ":"
+    def delete_cmd = (params.overwrite) 
+    ? "rm -rf $filter_directory" 
+    : """
+if [[ -d "${filter_directory}" ]]; then
+    echo "Error: Directory ${filter_directory} already exists. Use --overwrite to replace it." >&2
+    exit 1
+fi"""    
+    
     """
     $delete_cmd &&
     mkdir $filter_directory &&

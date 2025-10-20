@@ -84,6 +84,20 @@ if(!genome_directory.isDirectory()){
     tab_log("Found reference genome directory: ${genome_directory}...")
 }
 
+// Genome Name
+if(params.genome_name){
+    genome_name = "${params.genome_name}"
+} else if(params.fasta){
+    fasta_file = file(params.fasta)
+    genome_name = fasta_file.getBaseName().replaceAll(/\.f(ast[an]?)(\.gz)?$/, '')
+} else{
+    genome_name = "SNPRS_${timestamp}"
+}
+
+// Prep Directories
+genome_prep_directory = file("${genome_directory}/Prep_${genome_name}")
+genome_read_link_directory = file("${genome_directory}/Pangenome_Read_Links")
+
 // Mapping Directory
 mapping_directory = file("${snprs_directory}/Mapping")
 if(!mapping_directory.isDirectory()){
@@ -152,16 +166,6 @@ if(!params.refine_id){
     refine_id = "${params.refine_id}"
 }
 
-// Genome Name
-if(params.fasta){
-    fasta_file = file(params.fasta)
-    genome_name = (params.genome_name) ? "${params.genome_name}" : fasta_file.getBaseName().replaceAll(/\.f(ast[an]?)(\.gz)?$/, '')
-} else if(params.genome_name){
-    genome_name = "${params.genome_name}"
-} else{
-    genome_name = "SNPRS_${timestamp}"
-}
-
 // Import workflows
 include {assembleGenome} from "./subworkflows/prepare_genome/main.nf"
 include {useFASTA} from "./subworkflows/prepare_genome/main.nf"
@@ -187,31 +191,105 @@ include {generateTree} from "./subworkflows/generate_tree/main.nf"
 
 workflow{
 
-    // Pangenome Info: 
-    // Genome Name, Directory, FASTA file
+    // Pangenome Info (Genome Name, Directory, FASTA file)
 
-    pangenome_info = Channel.empty()
+    genome_info = Channel.empty()
     
     // Assemble pangenome from reads
     if(params.pg_reads){
         pg_read_data = file(params.pg_reads)
-        pangenome_info = assembleGenome(genome_directory,genome_name,pg_read_data) | first
+        genome_info = assembleGenome(genome_directory,genome_name,pg_read_data) | first
     } 
 
     // Get reference information from an assembly
     else if(params.fasta){
         fasta_file = file(params.fasta)
-        pangenome_info = useFASTA(genome_directory,genome_name,fasta_file) | first
+        genome_info = useFASTA(genome_directory,genome_name,fasta_file) | first
     }
 
     // Get reference information from a folder
     else{
         genome_dir = (params.genome_dir) ? file(params.genome_dir) : genome_directory
-        pangenome_info = checkGenomeDir(genome_dir) | first
+        genome_info = checkGenomeDir(genome_dir) | first
     }
 
-}
+    // Load in joined or filtered datasets if provided
+    joined_data = Channel.empty()
+    filtered_data = Channel.empty()
+    
+    if(params.filtered){
+        filtered_path = file("${params.filtered}")
+        filtered_data = (genome_info) ? fetchFiltered(filtered_path) : Channel.empty()
+    } else if(params.joined){
+        join_path = file("${params.joined}")
+        joined_data = (genome_info) ? fetchJoin(join_path) : Channel.empty()
 
+        // Filter data if requested
+        filtered_data = (genome_info && ((params.filter || params.validate))) ? filterJoined(genome_info,joined_data,filter_id) : Channel.empty()
+    } 
+
+    // Map, convert, call bases, join, and filter as requested
+    
+    else{
+
+        // Get BAM files    
+        existing_bam_data = (params.bam_files && !params.validate) ? fetchBAM(params.bam_files) : Channel.empty()
+
+        if(params.validate || params.map_reads){
+            map_read_dir = (params.validate) ? file("${genome_read_link_directory}") : file("${params.map_reads}")
+            new_bam_data = (genome_info) ? mapReads(map_read_dir,genome_info,mapping_directory) : Channel.empty()
+        } else{
+            new_bam_data = Channel.empty()
+        }
+
+        if("${params.runProfile}" == "local"){
+            bam_data = existing_bam_data.concat(new_bam_data) | collect | flatten | collate(2)
+        } else{
+            bam_data = existing_bam_data.concat(new_bam_data) 
+        }
+
+        // Get raw parquets
+        existing_parquet_data = (params.raw_parquets && !params.validate) ? fetchRawParquet(params.raw_parquets) : Channel.empty()
+        new_parquet_data = (genome_info && bam_data) ? bamToParquet(bam_data,genome_info,mapping_directory) : Channel.empty()    
+
+        if("${params.runProfile}" == "local"){
+            raw_parquet_data = existing_parquet_data.concat(new_parquet_data) | collect | flatten | collate(2)
+        } else{
+            raw_parquet_data = existing_parquet_data.concat(new_parquet_data)
+        }
+
+        // Get called bases
+        existing_called_base_data = (params.called_bases && !params.validate) ? fetchCalledBases(params.called_bases) : Channel.empty()
+        new_called_base_data = (genome_info && raw_parquet_data) ? callBases(raw_parquet_data,genome_info,mapping_directory) : Channel.empty()
+        called_bases_data = existing_called_base_data.concat(new_called_base_data) | collect  | flatten | collate(2)
+
+        // Join bases
+        joined_data = (called_bases_data) ? joinCalledBases(called_bases_data,joined_directory,join_id) : Channel.empty()
+
+        // Filter data if requested
+        filtered_data = (genome_info && ((params.filter || params.validate))) ? filterJoined(genome_info,joined_data,filter_id) : Channel.empty()
+    }
+
+    // Generate alignment from filtered or joined data if requested
+    alignment_file = Channel.empty()
+    if (params.alignment || params.validate) {
+        if (filtered_data) {
+            alignment_file = getAlignment(filtered_data)
+        } else if (joined_data) {
+            alignment_file = getAlignment(joined_data)
+        }
+    }
+
+    // Generate tree from filtered data if requested
+    tree_file = Channel.empty()
+    if (params.tree || params.validate) {
+        if (filtered_data) {
+            tree_file = filtered_data.combine(alignment_file) | collect | flatten | collate(3) | generateTree
+        } else if (joined_data) {
+            tree_file = joined_data.combine(alignment_file) | collect | flatten | collate(3) | generateTree
+        }
+    }
+}   
 /*
 
 
@@ -259,78 +337,15 @@ workflow{
 
 
     // Map reads, call bases, and join files unless already joined or filtered
-    if(params.filtered){
-        filtered_path = file("${params.filtered}")
-        filtered_data = (pangenome_info && params.filtered) ? fetchFiltered(filtered_path) : Channel.empty()
-    } else if(params.joined){
-        join_path = file("${params.joined}")
-        joined_data = (pangenome_info && params.joined) ? fetchJoin(join_path) : Channel.empty()
+else{
 
-        // Filter data if requested
-        filtered_data = (pangenome_info && ((params.filter || params.validate))) ? filterJoined(pangenome_info,joined_data,filter_id) : Channel.empty()
 
-    } else{
 
-        // Get BAM files    
-        existing_bam_data = (params.bam_files && !params.validate) ? fetchBAM(params.bam_files) : Channel.empty()
 
-        if(params.validate){
-            new_bam_data = (pangenome_info) ? mapReads(validation_read_directory,pangenome_info,current_mapping_directory) : Channel.empty()
-        } else if(params.map_reads){
-            mapping_read_data = (params.map_reads) ? file(params.map_reads) : ""
-            new_bam_data = (pangenome_info && params.map_reads) ? mapReads(mapping_read_data,pangenome_info,current_mapping_directory) : Channel.empty()
-        } else{
-            new_bam_data = Channel.empty()
-        }
-
-        if("${params.runProfile}" == "local"){
-            bam_data = existing_bam_data.concat(new_bam_data) | collect | flatten | collate(2)
-        } else{
-            bam_data = existing_bam_data.concat(new_bam_data) 
-        }
-
-        // Get raw parquets
-        existing_parquet_data = (params.raw_parquets && !params.validate) ? fetchRawParquet(params.raw_parquets) : Channel.empty()
-        new_parquet_data = (pangenome_info && bam_data) ? bamToParquet(bam_data,pangenome_info,current_mapping_directory) : Channel.empty()
-        raw_parquet_data = existing_parquet_data.concat(new_parquet_data)
-
-        if("${params.runProfile}" == "local"){
-            raw_parquet_data = existing_parquet_data.concat(new_parquet_data) | collect | flatten | collate(2)
-        } else{
-            raw_parquet_data = existing_parquet_data.concat(new_parquet_data)
-        }
     
-        // Get called bases
-        existing_called_base_data = (params.called_bases && !params.validate) ? fetchCalledBases(params.called_bases) : Channel.empty()
-        new_called_base_data = (pangenome_info && raw_parquet_data) ? callBases(raw_parquet_data,pangenome_info,current_mapping_directory) : Channel.empty()
-        called_bases_data = existing_called_base_data.concat(new_called_base_data) | collect  | flatten | collate(2)
 
-        // Join bases
-        joined_data = (pangenome_info && called_bases_data) ? joinCalledBases(called_bases_data,pangenome_info,current_joined_directory,join_id) : Channel.empty()
-
-        // Filter data if requested
-        filtered_data = (pangenome_info && ((params.filter || params.validate))) ? filterJoined(pangenome_info,joined_data,filter_id) : Channel.empty()
     }
 
-    // Generate alignment from filtered or joined data if requested
-    alignment_file = Channel.empty()
-    if (params.alignment || params.validate) {
-        if (filtered_data) {
-            alignment_file = getAlignment(filtered_data)
-        } else if (joined_data) {
-            alignment_file = getAlignment(joined_data)
-        }
-    }
 
-    // Generate tree from filtered data if requested
-    tree_file = Channel.empty()
-    if (params.tree || params.validate) {
-        if (filtered_data) {
-            tree_file = filtered_data.combine(alignment_file) | collect | flatten | collate(3) | generateTree
-        } else if (joined_data) {
-            tree_file = joined_data.combine(alignment_file) | collect | flatten | collate(3) | generateTree
-        }
-    }
-}   
 
 */

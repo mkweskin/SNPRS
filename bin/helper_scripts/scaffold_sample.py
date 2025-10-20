@@ -51,8 +51,8 @@ def save_sample_parquet(raw_sample_parquet, called_base_parquet, scaffold_parque
         missing_df = pl.concat([uncovered_rows, filtered_rows]).with_columns(pl.col("type").cast(pl.Int32))
 
     else:
-        # No raw parquet so all missing are uncovered
-        missing_df = missing_rows.with_columns([pl.lit("?").alias(sample_id),pl.lit(5).alias("type")]).with_columns(pl.col("type").cast(pl.Int32))
+        # No raw parquet so all missing are considered filtered
+        missing_df = missing_rows.with_columns([pl.lit("N").alias(sample_id),pl.lit(6).alias("type")]).with_columns(pl.col("type").cast(pl.Int32))
 
 
     # Called bases

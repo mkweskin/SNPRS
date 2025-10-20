@@ -9,7 +9,7 @@ workflow callBases{
 
     take:
     raw_parquet_data
-    pangenome_info
+    genome_info
     mapping_directory
     
     emit:
@@ -17,7 +17,7 @@ workflow callBases{
 
     main:
 
-    base_call_data = CALL_BASES(raw_parquet_data,pangenome_info,mapping_directory) | splitCsv()
+    base_call_data = CALL_BASES(raw_parquet_data,genome_info,mapping_directory) | splitCsv()
 }
 
 process CALL_BASES{
@@ -28,7 +28,7 @@ process CALL_BASES{
 
     input:
     tuple val(sample_id),val(sample_parquet)
-    tuple val(pg_name),val(fasta_path)
+    tuple val(genome_name),val(genome_directory),val(genome_file)
     val(mapping_directory)
 
     output:
