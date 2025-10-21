@@ -187,7 +187,9 @@ include {filterJoined} from "./subworkflows/filter_joined/main.nf"
 include {fetchFiltered} from "./subworkflows/filter_joined/main.nf"
 
 include {getAlignment} from "./subworkflows/alignment_tools/main.nf"
-include {generateTree} from "./subworkflows/generate_tree/main.nf"
+
+include {fetchTree} from "./subworkflows/tree_tools/main.nf"
+include {generateTree} from "./subworkflows/tree_tools/main.nf"
 
 workflow{
 
@@ -282,11 +284,18 @@ workflow{
 
     // Generate tree from filtered data if requested
     tree_file = Channel.empty()
-    if (params.tree || params.validate) {
-        if (filtered_data) {
-            tree_file = filtered_data.combine(alignment_file) | collect | flatten | collate(3) | generateTree
-        } else if (joined_data) {
-            tree_file = joined_data.combine(alignment_file) | collect | flatten | collate(3) | generateTree
+    if(params.tree_file){
+        tree_path = file(params.tree_file)
+        tree_file = fetchTree(tree_path)
+    } else{
+        if (params.tree || params.validate) {
+            if (filtered_data) {
+                tree_file = filtered_data.combine(alignment_file) | collect | flatten | collate(3) | generateTree
+            } else if (joined_data) {
+                tree_file = joined_data.combine(alignment_file) | collect | flatten | collate(3) | generateTree
+            }
         }
     }
+
+
 }
