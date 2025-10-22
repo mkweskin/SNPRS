@@ -113,7 +113,7 @@ process MAKE_SPLIT_TABLE{
     def tree_path = file(tree_file)
     def get_split_script = file("${projectDir}/bin/tree2splits.py")
 
-    def output_file = "${tree_path}".replaceFirst(/\\.[^\\.]+$/, '') + "_Split_Table.csv"
+    def output_file = "${tree_path}".replaceFirst(/\.[^.]+$/, '') + "_Split_Table.csv"
 
     def delete_cmd = (params.overwrite) 
     ? "rm -f $output_file"
@@ -125,6 +125,48 @@ fi"""
 
     """
     python $get_split_script $tree_path &&
+    echo -n $output_file
+    """
+}
+
+workflow makeSNPGroups{
+    
+    take:
+    tree_split
+    
+    emit:
+    group_file
+
+    main:
+
+    group_file = MAKE_SNP_GROUPS(tree_split)
+}
+
+process MAKE_SNP_GROUPS{
+
+    input:
+    tuple val(tree_path),val(split_path)
+
+    output:
+    stdout
+    
+    script:
+
+    def get_group_script = file("${projectDir}/bin/splits2groups.py")
+    def output_file = tree_path.replaceFirst(/\.[^.]+$/, '') + "_Monophyletic_Groups.csv"
+
+    def mono_arg = (params.mono) ? "--mono" : ""
+
+    def delete_cmd = (params.overwrite) 
+    ? "rm -f $output_file"
+    : """
+if [ -e "$output_file" ]; then
+    echo "❌ Error: ${output_file} already exists! Use --overwrite to replace." >&2
+    exit 1
+fi"""
+
+    """
+    python $get_group_script --tree $tree_path --splits $split_path $mono_arg &&
     echo -n $output_file
     """
 }

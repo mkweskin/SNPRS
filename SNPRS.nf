@@ -191,6 +191,7 @@ include {getAlignment} from "./subworkflows/alignment_tools/main.nf"
 
 include {fetchTree} from "./subworkflows/tree_tools/main.nf"
 include {makeSplitTable} from "./subworkflows/tree_tools/main.nf"
+include {makeSNPGroups} from "./subworkflows/tree_tools/main.nf"
 include {generateTree} from "./subworkflows/tree_tools/main.nf"
 
 workflow{
@@ -212,6 +213,7 @@ workflow{
     }
 
     // Get reference information from a folder
+    // FIX NULL
     else{
         genome_dir = (params.genome_dir) ? file(params.genome_dir) : genome_directory
         genome_info = checkGenomeDir(genome_dir) | first
@@ -300,9 +302,17 @@ workflow{
         }
     }
 
-    // If tree data is available, generate split table if needed
-    split_file = Channel.empty()
-    if(tree_file){
+    // If tree data is available, generate split table if needed    
+    if(params.split_file){
+        Channel.fromPath(params.split_file).set { split_file }
+    } else{
         split_file = tree_file | makeSplitTable | collect | flatten | collate(1)
+    }
+
+    // If tree data is available, generate group table
+    if(params.group_file){
+        Channel.fromPath(params.group_file).set { group_file }
+    } else{  
+        group_file = tree_file.combine(split_file) | makeSNPGroups | collect | flatten | collate(1)
     }
 }
