@@ -24,45 +24,66 @@ def split_ingroup_outgroup(split_df):
         (split_df["Clade_ID"].str.lower() == "outgroup") |
         (split_df["Mirror_ID"].str.lower() == "outgroup")
     )
+
     outgroup_count = outgroup_mask.sum()
     assert outgroup_count <= 1, f"'Outgroup' occurs {outgroup_count} times (expected 0 or 1)."
 
-    if outgroup_count == 1:
-        outgroup_row = split_df[outgroup_mask].iloc[0]
-        clade_tips = (
-            outgroup_row["Clade_Taxa"] if outgroup_row["Clade_ID"].lower() == "outgroup"
-            else outgroup_row["Mirror_Taxa"]
-        )
-        outgroup_df = pd.DataFrame([{
-            "Clade_ID": "Outgroup",
-            "Clade_Tips": clade_tips,
-            "Group_Type":"Outgroup"
-        }])
-    else:
-        outgroup_df = pd.DataFrame(columns=["Clade_ID", "Clade_Tips","Group_Type"])
+    outgroup_df = pd.DataFrame(columns=["Clade_ID", "Clade_Tips", "Group_Type"])
+    ingroup_tips = ""
+    outgroup_tips = ""
 
+    if outgroup_count == 1:
+        outgroup_rows = []
+        outgroup_row = split_df[outgroup_mask].iloc[0]
+
+        if outgroup_row["Clade_ID"].strip().lower() == "outgroup":
+            outgroup_tips = outgroup_row["Clade_Taxa"]
+            ingroup_tips = outgroup_row["Mirror_Taxa"]
+            ingroup_id = outgroup_row["Mirror_ID"].strip() or "Ingroup"
+        else:
+            outgroup_tips = outgroup_row["Mirror_Taxa"]
+            ingroup_tips = outgroup_row["Clade_Taxa"]
+            ingroup_id = outgroup_row["Clade_ID"].strip() or "Ingroup"
+
+        outgroup_rows.append({
+            "Clade_ID": ingroup_id,
+            "Clade_Tips": ingroup_tips,
+            "Group_Type": "Ingroup"
+        })
+
+        outgroup_rows.append({
+            "Clade_ID": "Outgroup",
+            "Clade_Tips": outgroup_tips,
+            "Group_Type": "Outgroup"
+        })
+
+        outgroup_df = pd.DataFrame(outgroup_rows)
+
+    seen_tips = {ingroup_tips, outgroup_tips}
     ingroup_rows = []
-    for side in [("Clade_ID", "Clade_Taxa"), ("Mirror_ID", "Mirror_Taxa")]:
-        id_col, tips_col = side
-        mask = (split_df[id_col].str.lower() != "outgroup") & (split_df[id_col].str.lower() != "")
+
+    for id_col, tips_col in [("Clade_ID", "Clade_Taxa"), ("Mirror_ID", "Mirror_Taxa")]:
+        mask = (split_df[id_col].str.lower() != "outgroup") & (split_df[id_col] != "")
         for _, row in split_df[mask].iterrows():
-            ingroup_rows.append({
-                "Clade_ID": row[id_col],
-                "Clade_Tips": row[tips_col]
-            })
+            clade_tips = row[tips_col]
+            if clade_tips and clade_tips not in seen_tips:
+                ingroup_rows.append({
+                    "Clade_ID": row[id_col],
+                    "Clade_Tips": clade_tips
+                })
+
     ingroup_df = pd.DataFrame(ingroup_rows)
 
     def flatten_tips(df):
-
         return set(
             tip.strip()
-            for clade in df["Clade_Tips"]
+            for clade in df["Clade_Tips"].dropna()
             for tip in clade.split(";")
             if tip.strip()
         )
 
     ingroup_ids = flatten_tips(ingroup_df)
-    outgroup_ids = flatten_tips(outgroup_df) if not outgroup_df.empty else set()
+    outgroup_ids = flatten_tips(outgroup_df[outgroup_df["Group_Type"] == "Outgroup"]) if not outgroup_df.empty else set()
 
     return ingroup_df, outgroup_df, ingroup_ids, outgroup_ids
 
@@ -152,7 +173,7 @@ def add_internals(terminal_named_df, split_df,tree):
 
     new_sets = []
     for id_col, tip_col in [("Clade_ID", "Clade_Taxa"), ("Mirror_ID", "Mirror_Taxa")]:
-        mask = split_df[typid_col].str.lower() != "outgroup"
+        mask = split_df[id_col].str.lower() != "outgroup"
         for _, row in split_df[mask].iterrows():
             if pd.isna(row[tip_col]) or str(row[tip_col]).strip() == "":                
                 continue
@@ -223,7 +244,9 @@ if __name__ == "__main__":
                 f"Overlap detected between ingroup and outgroup IDs: {overlap}. "
                 "Each tip should be assigned to only one group."
             )
-        
+    
+    assert set(ingroup_ids | outgroup_ids) == all_taxa, "Ingroup/Outgroup to not add up to all tips"
+
     terminal_named_df = assign_terminal(ingroup_df, ingroup_ids)
     full_ingroup_df = add_internals(terminal_named_df, split_df,tree)
     output_df = pd.concat([full_ingroup_df,outgroup_df])
