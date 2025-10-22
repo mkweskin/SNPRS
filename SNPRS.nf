@@ -20,6 +20,7 @@ def date_log(message) {
         writer.writeLine("[${timestamp}] ${message}")
     }
 }
+
 def cmd_args = workflow.commandLine
 
 // SNPRS Main Script
@@ -189,6 +190,7 @@ include {fetchFiltered} from "./subworkflows/filter_joined/main.nf"
 include {getAlignment} from "./subworkflows/alignment_tools/main.nf"
 
 include {fetchTree} from "./subworkflows/tree_tools/main.nf"
+include {makeSplitTable} from "./subworkflows/tree_tools/main.nf"
 include {generateTree} from "./subworkflows/tree_tools/main.nf"
 
 workflow{
@@ -247,7 +249,7 @@ workflow{
         if("${params.runProfile}" == "local"){
             bam_data = existing_bam_data.concat(new_bam_data) | collect | flatten | collate(2)
         } else{
-            bam_data = existing_bam_data.concat(new_bam_data) 
+            bam_data = existing_bam_data.concat(new_bam_data)
         }
 
         // Get raw parquets
@@ -263,7 +265,7 @@ workflow{
         // Get called bases
         existing_called_base_data = (params.called_bases && !params.validate) ? fetchCalledBases(params.called_bases) : Channel.empty()
         new_called_base_data = (genome_info && raw_parquet_data) ? callBases(raw_parquet_data,genome_info,mapping_directory) : Channel.empty()
-        called_bases_data = existing_called_base_data.concat(new_called_base_data) | collect  | flatten | collate(2)
+        called_bases_data = existing_called_base_data.concat(new_called_base_data) | collect | flatten | collate(2)
 
         // Join bases
         joined_data = (called_bases_data) ? joinCalledBases(called_bases_data,joined_directory,join_id) : Channel.empty()
@@ -276,26 +278,31 @@ workflow{
     alignment_file = Channel.empty()
     if (params.alignment || params.validate) {
         if (filtered_data) {
-            alignment_file = getAlignment(filtered_data)
+            alignment_file = getAlignment(filtered_data) | collect | flatten | collate(1)
         } else if (joined_data) {
-            alignment_file = getAlignment(joined_data)
+            alignment_file = getAlignment(joined_data) | collect | flatten | collate(1)
         }
     }
 
     // Generate tree from filtered data if requested
     tree_file = Channel.empty()
+    
     if(params.tree_file){
-        tree_path = file(params.tree_file)
-        tree_file = fetchTree(tree_path)
+        tree_path = file(params.tree_file) 
+        tree_file = fetchTree(tree_path) | collect | flatten | collate(1)
     } else{
         if (params.tree || params.validate) {
             if (filtered_data) {
-                tree_file = filtered_data.combine(alignment_file) | collect | flatten | collate(3) | generateTree
+                tree_file = filtered_data.combine(alignment_file) | collect | flatten | collate(3) | generateTree | collect | flatten | collate(1)
             } else if (joined_data) {
-                tree_file = joined_data.combine(alignment_file) | collect | flatten | collate(3) | generateTree
+                tree_file = joined_data.combine(alignment_file) | collect | flatten | collate(3) | generateTree | collect | flatten | collate(1)
             }
         }
     }
 
-
+    // If tree data is available, generate split table if needed
+    split_file = Channel.empty()
+    if(tree_file){
+        split_file = tree_file | makeSplitTable | collect | flatten | collate(1)
+    }
 }

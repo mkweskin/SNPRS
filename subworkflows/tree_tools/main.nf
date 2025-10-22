@@ -63,7 +63,7 @@ workflow fetchTree{
     tree_file
 
     main:
-    tree_file = FETCH_TREE(tree_path) | collect | map{it->it[0]}
+    tree_file = FETCH_TREE(tree_path)
 }
 
 process FETCH_TREE{
@@ -84,5 +84,47 @@ process FETCH_TREE{
     """
     python $fetch_tree_script $tree_path &&
     echo -n $tree_path
+    """
+}
+
+workflow makeSplitTable{
+
+    take:
+    tree_file
+
+    emit:
+    tree_split_file
+
+    main:
+    tree_path = tree_file.map{it->"${it[0]}"}
+    tree_split_file = MAKE_SPLIT_TABLE(tree_path)
+}
+
+process MAKE_SPLIT_TABLE{
+
+    input:
+    val(tree_file)
+    
+    output:
+    stdout
+
+    script:
+
+    def tree_path = file(tree_file)
+    def get_split_script = file("${projectDir}/bin/tree2splits.py")
+
+    def output_file = "${tree_path}".replaceFirst(/\\.[^\\.]+$/, '') + "_Split_Table.csv"
+
+    def delete_cmd = (params.overwrite) 
+    ? "rm -f $output_file"
+    : """
+if [ -e "$output_file" ]; then
+    echo "❌ Error: ${output_file} already exists! Use --overwrite to replace." >&2
+    exit 1
+fi"""
+
+    """
+    python $get_split_script $tree_path &&
+    echo -n $output_file
     """
 }
