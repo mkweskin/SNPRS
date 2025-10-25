@@ -34,3 +34,4 @@ dependencies:
   - toytree
   - scikit-bio
   - plotly
+  - sra-tools

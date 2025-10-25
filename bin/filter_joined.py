@@ -121,12 +121,12 @@ def get_max_missing(site_file, pass_gross_exclusion_file, pass_site_type_file, t
     sites = pl.scan_parquet(site_file)
     row_count = pq.ParquetFile(site_file).metadata.num_rows
     row_numbers = pl.LazyFrame({"row_nr": list(range(row_count))})
+    row_sites = pl.concat([sites,row_numbers],how="horizontal")
 
     gross_pass = pl.scan_parquet(pass_gross_exclusion_file).select("row_nr")
     site_pass = pl.scan_parquet(pass_site_type_file).select("row_nr")
-
     intersection = gross_pass.join(site_pass, on="row_nr", how="inner")
-    row_sites = pl.concat([sites,row_numbers],how="horizontal")
+    
     filtered = (row_sites.join(intersection, on="row_nr", how="semi"))
 
     grouped_counts = (

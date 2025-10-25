@@ -95,6 +95,33 @@ if(params.genome_name){
     genome_name = "SNPRS_${timestamp}"
 }
 
+// Join ID
+if(params.validate){
+    join_id = "Validation"
+} else if(!params.join_id){
+    join_id = "Joined_SNPRS_${timestamp}"
+} else{
+    join_id = "${params.join_id}"
+}
+
+// Filter ID
+if(params.validate){
+    filter_id = "Filter_Validation"
+} else if(!params.filter_id){
+    filter_id = "Filter_SNPRS_${timestamp}"
+} else{
+    filter_id = "${params.filter_id}"
+}
+
+// SNP ID
+if(params.validate){
+    snp_id = "SNP_Validation"
+} else if(!params.snp_id){
+    snp_id = "SNP_SNPRS_${timestamp}"
+} else{
+    snp_id = "${params.snp_id}"
+}
+
 // Prep Directories
 genome_prep_directory = file("${genome_directory}/Prep_${genome_name}")
 genome_read_link_directory = file("${genome_directory}/Pangenome_Read_Links")
@@ -118,53 +145,36 @@ if(!joined_directory.isDirectory()){
 }
 
 // SNP Directory
-snp_directory = file("${snprs_directory}/SNP_Analysis")
-if(!snp_directory.isDirectory()){
-    snp_directory.mkdirs() 
-    tab_log("Created SNP directory: ${snp_directory}...")
-} else{
+if (params.split_file){
+    split_path = file(params.split_file)
+    snp_directory = split_path.getParent().getParent()
+    snp_id = split_path.getParent().getName()
     tab_log("Found SNP directory: ${snp_directory}...")
-}
+} else if (params.group_file){
+    group_path = file(params.group_file)
+    snp_directory = group_path.getParent().getParent()
+    snp_id = group_path.getParent().getName()
+    tab_log("Found SNP directory: ${snp_directory}...")
+} else if (params.snp_dir) {
+    
+    snp_dir_path = file(params.snp_dir)
+    if(!snp_dir_path.isDirectory()){
+        error "${snp_dir_path} provided by --snp_dir does not exist"
+    }
 
-// Fixed Directory
-fixed_directory = file("${snp_directory}/Fixed_Sites")
-if(!fixed_directory.isDirectory()){
-    fixed_directory.mkdirs() 
-    tab_log("Created fixed site directory: ${fixed_directory}...")
+    snp_directory = snp_dir_path.getParent()
+    snp_id = snp_dir_path.getName()
+    tab_log("Found SNP directory: ${snp_directory}...")
+ 
 } else{
-    tab_log("Found fixed site directory: ${fixed_directory}...")
-}
 
-// Join ID
-if(params.validate){
-    join_id = "Validation"
-} else if(!params.join_id){
-    join_id = "Joined_SNPRS_${timestamp}"
-} else{
-    join_id = "${params.join_id}"
-}
-
-// Filter ID
-if(params.validate){
-    filter_id = "Filter_Validation"
-} else if(!params.filter_id){
-    filter_id = "Filter_SNPRS_${timestamp}"
-} else{
-    filter_id = "${params.filter_id}"
-}
-
-// Fixed ID
-if(!params.fixed_id){
-    fixed_id = "Fixed_SNPRS_${timestamp}"
-} else{
-    fixed_id = "${params.fixed_id}"
-}
-
-// Refine ID
-if(!params.refine_id){
-    refine_id = "Refined_SNPRS_${timestamp}"
-} else{
-    refine_id = "${params.refine_id}"
+    snp_directory = file("${snprs_directory}/SNP_Analysis")
+    if(!snp_directory.isDirectory()){
+        snp_directory.mkdirs() 
+        tab_log("Created SNP directory: ${snp_directory}...")
+    } else{
+        tab_log("Found SNP directory: ${snp_directory}...")
+    }
 }
 
 // Import workflows
@@ -193,6 +203,8 @@ include {fetchTree} from "./subworkflows/tree_tools/main.nf"
 include {makeSplitTable} from "./subworkflows/tree_tools/main.nf"
 include {makeSNPGroups} from "./subworkflows/tree_tools/main.nf"
 include {generateTree} from "./subworkflows/tree_tools/main.nf"
+
+include {generateSNPs} from "./subworkflows/snp_tools/main.nf"
 
 workflow{
 
@@ -292,7 +304,9 @@ workflow{
 
     // Generate alignment from filtered or joined data if requested
     alignment_file = Channel.empty()
-    if (params.alignment || params.validate) {
+    if(params.alignment_file){
+        Channel.fromPath(params.alignment_file).set { alignment_file }
+    } else if (params.alignment || params.validate) {
         if (filtered_data) {
             alignment_file = getAlignment(filtered_data) | collect | flatten | collate(1)
         } else if (joined_data) {
@@ -315,17 +329,22 @@ workflow{
         }
     }
 
-    // If tree data is available, generate split table if needed    
-    if(params.split_file){
-        Channel.fromPath(params.split_file).set { split_file }
-    } else{
-        split_file = tree_file | makeSplitTable | collect | flatten | collate(1)
+    // If tree data is available, generate split table if needed
+    snp_dir_ch = Channel.of([snp_id, snp_directory]) 
+    
+    // Intializes SNP directory
+    split_file = Channel.empty()
+    
+    if(!params.group_file){
+        split_file = (params.split_file) ? Channel.fromPath(params.split_file) : tree_file.combine(snp_dir_ch) | makeSplitTable | collect | flatten | collate(1)
     }
+    
+    // Only manual for now to allow for labeling
+    split_data_ch = (params.split_file) ? tree_file.combine(split_file).combine(snp_dir_ch) : Channel.empty()
+    group_file = (params.group_file) ? Channel.fromPath(params.group_file) : split_data_ch | makeSNPGroups | collect | flatten | collate(1)
 
-    // If tree data is available, generate group table if needed
-    if(params.group_file){
-        Channel.fromPath(params.group_file).set { group_file }
-    } else{  
-        group_file = tree_file.combine(split_file) | makeSNPGroups | collect | flatten | collate(1)
-    }
+    snp_data_ch = (params.group_file) ? snp_dir_ch.combine(tree_file).combine(group_file) : Channel.empty()
+    snp_pre_data = (params.filtered) ? filtered_data.combine(snp_data_ch) : joined_data.combine(snp_data_ch) 
+
+    snp_data = snp_pre_data | generateSNPs | collect | flatten | collate(2)
 }

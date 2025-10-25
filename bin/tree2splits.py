@@ -31,6 +31,7 @@ def extract_splits(tree):
 if __name__ == "__main__":
 
     treefile = os.path.abspath(sys.argv[1])
+    outfile = os.path.abspath(sys.argv[2])
 
     if not os.path.exists(treefile):
         sys.exit(f"Error: {treefile} not found.")
@@ -41,5 +42,4 @@ if __name__ == "__main__":
     df["Clade_ID"] = ""
     df["Mirror_ID"] = ""
 
-    out_csv = os.path.splitext(treefile)[0] + "_Split_Table.csv"
-    df.to_csv(out_csv, sep=",", index=False)
+    df.to_csv(outfile, sep=",", index=False)

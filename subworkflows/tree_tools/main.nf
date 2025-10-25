@@ -1,7 +1,7 @@
 #! /usr/bin/env nextflow
 nextflow.enable.dsl=2
 
-cpu = (params.validate || params.fast) ? 1 : params.cpus as Integer
+cpu = (!params.iqtree) ? 1 : params.cpus as Integer
 
 workflow generateTree{
     
@@ -29,7 +29,7 @@ process GENERATE_TREE{
     script:
 
     def alignment_file = file(align_file)
-    def tree_type = ((params.fast || params.validate)) ? "fasttree" : "iqtree"
+    def tree_type = (params.iqtree) ? "iqtree" : "fasttree"
 
     def tree_dir = ("${tree_type}" == "fasttree") ? file("${input_dir}/FastTree") : file("${input_dir}/iqTree")
     def tree_file = ("${tree_type}" == "fasttree") ? file("${tree_dir}/${input_id}_FastTree.nwk") : file("${tree_dir}/${input_id}.treefile")
@@ -38,7 +38,7 @@ process GENERATE_TREE{
     def bb = params.bb as Integer
     def iqtree_model = (params.gtr) ? "-m GTR+G" : "-m MFP+MERGE"
 
-    def tree_cmd = ("${tree_type}" == "fasttree") ? "fasttree -nt -gtr -out $tree_file $alignment_file &> $log_file" : "iqtree -nt AUTO $iqtree_model -bb $bb -s $alignment_file --prefix $input_id --keep-ident &> $log_file"
+    def tree_cmd = ("${tree_type}" == "fasttree") ? "fasttree -nt -gtr -nopr -out $tree_file $alignment_file &> $log_file" : "iqtree -nt AUTO $iqtree_model -bb $bb -s $alignment_file --prefix $input_id --keep-ident &> $log_file"
 
     def delete_cmd = (params.overwrite) ? "rm -rf $tree_dir" : ":"
 
@@ -90,41 +90,48 @@ process FETCH_TREE{
 workflow makeSplitTable{
 
     take:
-    tree_file
+    split_data
 
     emit:
     tree_split_file
 
     main:
-    tree_path = tree_file.map{it->"${it[0]}"}
-    tree_split_file = MAKE_SPLIT_TABLE(tree_path)
+    tree_split_file = MAKE_SPLIT_TABLE(split_data)
 }
 
 process MAKE_SPLIT_TABLE{
 
     input:
-    val(tree_file)
+    tuple val(tree_file),val(snp_id),val(snp_directory)
     
     output:
     stdout
 
     script:
 
+    if(params.snp_dir){
+        error "Can't run MAKE_SPLIT_TABLE if providing a --snp_dir"
+    }
+
     def tree_path = file(tree_file)
     def get_split_script = file("${projectDir}/bin/tree2splits.py")
 
-    def output_file = "${tree_path}".replaceFirst(/\.[^.]+$/, '') + "_Split_Table.csv"
+    def snp_dir = file("${snp_directory}/${snp_id}")
+
+    def output_file = file("${snp_dir}/${snp_id}_TreeSplits.csv")
 
     def delete_cmd = (params.overwrite) 
-    ? "rm -f $output_file"
+    ? "rm -f $snp_dir"
     : """
-if [ -e "$output_file" ]; then
-    echo "❌ Error: ${output_file} already exists! Use --overwrite to replace." >&2
+if [ -d "$snp_dir" ]; then
+    echo "❌ Error in MAKE_SPLIT_TABLE: ${snp_dir} already exists! Use --overwrite to replace." >&2
     exit 1
 fi"""
 
     """
-    python $get_split_script $tree_path &&
+    $delete_cmd &&
+    mkdir $snp_dir &&
+    python $get_split_script $tree_path $output_file &&
     echo -n $output_file
     """
 }
@@ -145,7 +152,7 @@ workflow makeSNPGroups{
 process MAKE_SNP_GROUPS{
 
     input:
-    tuple val(tree_path),val(split_path)
+    tuple val(tree_path),val(split_path),val(snp_id),val(snp_directory)
 
     output:
     stdout
@@ -153,7 +160,9 @@ process MAKE_SNP_GROUPS{
     script:
 
     def get_group_script = file("${projectDir}/bin/splits2groups.py")
-    def output_file = tree_path.replaceFirst(/\.[^.]+$/, '') + "_Monophyletic_Groups.csv"
+    def snp_dir = file("${snp_directory}/${snp_id}")
+
+    def output_file = file("${snp_dir}/${snp_id}_Monophyletic_Groups.csv")
 
     def mono_arg = (params.mono) ? "--mono" : ""
 
@@ -166,7 +175,7 @@ if [ -e "$output_file" ]; then
 fi"""
 
     """
-    python $get_group_script --tree $tree_path --splits $split_path $mono_arg &&
+    python $get_group_script --tree $tree_path --splits $split_path --out $output_file $mono_arg &&
     echo -n $output_file
     """
 }

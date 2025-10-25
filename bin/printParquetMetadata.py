@@ -35,7 +35,7 @@ def parquet_preview(parquet_path,preview_data):
         print(f"\nTotal rows: {row_count}")
 
         head_df = lf.limit(25).collect()
-        #head_df = lf.filter(pl.col("base").cast(pl.Utf8).str.starts_with("+")).limit(25).collect()
+        #head_df = lf.filter((~pl.col("Outgroup").is_in(['A','C','T','G','-']))).limit(25).collect()
 
         print("\nFirst 25 rows:")
         pl.Config.set_tbl_rows(25)

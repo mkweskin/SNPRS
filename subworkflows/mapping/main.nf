@@ -41,7 +41,7 @@ process FETCH_MAP_READS{
     cpus = 1
 
     input:
-    tuple val(genome_name),val(read_data)
+    tuple val(genome_name),val(read_data),val(mapping_directory)
 
     output:
     stdout
