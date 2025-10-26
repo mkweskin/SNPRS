@@ -144,6 +144,9 @@ if(!joined_directory.isDirectory()){
     tab_log("Found joining directory: ${joined_directory}...")
 }
 
+// SRA Directory
+sra_directory = file("${snprs_directory}/SRA_Reads")
+
 // SNP Directory
 if (params.split_file){
     split_path = file(params.split_file)
@@ -183,6 +186,7 @@ include {useFASTA} from "./subworkflows/prepare_genome/main.nf"
 include {checkGenomeDir} from "./subworkflows/prepare_genome/main.nf"
 
 include {mapReads} from "./subworkflows/mapping/main.nf"
+include {mapSRA} from "./subworkflows/mapping/main.nf"
 include {fetchBAM} from "./subworkflows/mapping/main.nf"
 
 include {bamToParquet} from "./subworkflows/convert_bam/main.nf"
@@ -209,7 +213,6 @@ include {generateSNPs} from "./subworkflows/snp_tools/main.nf"
 workflow{
 
     // Pangenome Info (Genome Name, Directory, FASTA file)
-
     genome_info = Channel.empty()
     joined_data = Channel.empty()
     filtered_data = Channel.empty()
@@ -273,10 +276,13 @@ workflow{
                 new_bam_data = Channel.empty()
             }
 
+            // Check for SRA mapping datas
+            sra_bam_data = (params.map_sra) ? mapSRA(params.map_sra,sra_directory,genome_info,mapping_directory) : Channel.empty()        
+
             if("${params.runProfile}" == "local"){
-                bam_data = existing_bam_data.concat(new_bam_data) | collect | flatten | collate(2)
+                bam_data = existing_bam_data.concat(new_bam_data).concat(sra_bam_data) | collect | flatten | collate(2)
             } else{
-                bam_data = existing_bam_data.concat(new_bam_data)
+                bam_data = existing_bam_data.concat(new_bam_data).concat(sra_bam_data)
             }
 
             // Get raw parquets

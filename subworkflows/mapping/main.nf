@@ -103,6 +103,35 @@ process BBMAP_INDEX{
     """
 }
 
+workflow mapSRA{
+    
+    take:
+    sra_file
+    sra_directory
+    genome_info
+    mapping_directory
+
+    emit:
+    sra_bam_data
+
+    main:
+
+    sra_ids = Channel.fromPath(sra_file).splitText().map{it.trim()}.filter{it}
+
+    sra_reads = sra_ids.combine(Channel.of([sra_directory, params.map_forward, params.map_reverse, params.map_ext])) | STREAM_SRA | splitCsv
+
+    if(file("${mapping_directory}/ref").isDirectory()){
+        bbmap_ref = "${mapping_directory}/ref"
+    } else{
+        bbmap_ref = genome_info.map{it->tuple(it[2],"${mapping_directory}")}
+        | BBMAP_INDEX
+        | collect
+        | map{it->it[0]}
+    }
+
+    sra_bam_data = MAP_READS(sra_reads,bbmap_ref,mapping_directory) | splitCsv
+}
+
 process MAP_READS{
 
     tag "Map_${sample_id}"
@@ -206,3 +235,44 @@ process FETCH_BAM{
     """
 }
 
+process STREAM_SRA {
+
+    tag "Fetch_${srr_id}"
+
+    cpus sample_cpu
+
+    input:
+    tuple val(srr_id),val(out_dir),val(forward),val(reverse),val(ext)
+
+    output:
+    stdout
+
+    script:
+
+    def out_directory = file("${out_dir}")
+    def sra_log_directory = file("${out_directory}/logs")
+
+    def forward_out = file("${out_directory}/${srr_id}${forward}")
+    def reverse_out = file("${out_directory}/${srr_id}${reverse}")
+    def se_out = file("${out_directory}/${srr_id}${ext}")
+
+    def log_file = file("${sra_log_directory}/out_${srr_id}_Trim")
+
+    def ow_arg = (params.overwrite) ? "overwrite=t": ""
+
+    """
+    mkdir -p $out_directory &&
+    mkdir -p $sra_log_directory &&
+
+    layout=\$(vdb-dump -R1 -C READ_LEN -f tab $srr_id | awk '{if(NF>1) print "PE"; else print "SE"}') &&
+
+    if [[ "\$layout" == "PE" ]]; then
+        fasterq-dump --split-spot --stdout --threads ${sample_cpu} $srr_id | bbduk.sh int=f in=stdin.fq out=${forward_out} out2=${reverse_out} ref=adapters ktrim=r k=23 mink=11 hdist=1 tbo threads=${sample_cpu} $ow_arg &> $log_file &&
+        echo -n $srr_id,$forward_out,$reverse_out
+
+    else
+        fasterq-dump --stdout --threads ${sample_cpu} $srr_id | bbduk.sh in=stdin.fq out=${se_out} ref=adapters ktrim=r k=23 mink=11 hdist=1 threads=${sample_cpu} $ow_arg &> $log_file &&
+        echo -n $srr_id,$se_out,
+    fi
+    """
+}
