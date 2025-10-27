@@ -111,8 +111,8 @@ process COUNT_BASES {
     def base_count_file = file("${genome_prep_directory}/Read_Counts.csv")
     
     def stats_cmd = reverse 
-    ? "seqkit stats -j 1 -a -T ${forward} ${reverse}" 
-    : "seqkit stats -j 1 -a -T ${forward}"
+    ? "seqkit stats -j $sample_cpu -a -T ${forward} ${reverse}" 
+    : "seqkit stats -j $sample_cpu -a -T ${forward}"
 
     """
     output=\$(${stats_cmd})

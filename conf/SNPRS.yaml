@@ -20,12 +20,11 @@ dependencies:
   - biopython
   - scikit-learn
   - matplotlib
-  - polars>=0.20.9
-  - polars-u64-idx
+  - polars-lts-cpu>=0.20.9
   - pysam
   - pyarrow
   - bcftools
-  - fasttree
+  - veryfasttree=3.2.1 
   - iqtree=2.3.6
   - seqkit
   - natsort
