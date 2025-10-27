@@ -255,7 +255,8 @@ def assign_terminal(ingroup_df, ingroup_ids):
         raise ValueError(f"Cannot process terminal groups. Check groupings/singletons...")
 
     terminal_group_df = pd.DataFrame(terminal_rows)
-
+    terminal_sets = [set(tips.split(";")) for tips in terminal_group_df["Clade_Tips"]]
+    
     terminal_tips_flat = [
     tip.strip()
     for clade in terminal_group_df["Clade_Tips"]
@@ -282,6 +283,11 @@ def assign_terminal(ingroup_df, ingroup_ids):
         clade_id = str(row.get("Clade_ID", "")).strip()
         clade_tips = row["Clade_Tips"]
 
+        clade_set = set(clade_tips.split(";"))
+
+        if any(clade_set <= s for s in terminal_sets):
+            continue
+
         if clade_id and clade_id not in used_ids:
             named_internal_rows.append({
                 "Clade_ID": clade_id,
@@ -292,7 +298,7 @@ def assign_terminal(ingroup_df, ingroup_ids):
     named_internal_df = pd.DataFrame(named_internal_rows)
     return pd.concat([terminal_group_df, named_internal_df])
 
-def add_internals(terminal_named_df, split_df,tree):
+def add_internals(terminal_named_df, split_df,ingroup_ids,outgroup_ids,tree):
 
     terminal_sets = {
         row.Clade_ID: set(row.Clade_Tips.split(";"))
@@ -303,6 +309,13 @@ def add_internals(terminal_named_df, split_df,tree):
         ";".join(natsorted(t.strip() for t in clade.split(";") if t.strip()))
         for clade in terminal_named_df["Clade_Tips"]
     )
+
+    all_strings = (
+        split_df["Clade_Taxa"].fillna("").astype(str).str.strip().tolist() +
+        split_df["Mirror_Taxa"].fillna("").astype(str).str.strip().tolist()
+    )
+
+    ingroup_string = ";".join(natsorted(ingroup_ids))
 
     new_internal_rows = []
     i = 1
@@ -316,16 +329,23 @@ def add_internals(terminal_named_df, split_df,tree):
             split_tips = [t.strip() for t in row[tip_col].split(";") if t.strip()]
             normalized_tips = ";".join(natsorted(split_tips))
 
+            if outgroup_ids:
+                if set(split_tips) & set(outgroup_ids):                    
+                    continue
+
             if normalized_tips in existing_clade_tips:
                 continue
 
-            if not is_monophyletic(tree, split_tips):
+            if not normalized_tips in all_strings:
                 continue
 
             clade_tip_set = set(split_tips)
             if any(clade_tip_set <= v for k, v in terminal_sets.items()):
                 continue
             
+            if normalized_tips == ingroup_string:
+                continue
+
             new_internal_rows.append({
                     "Clade_ID": f"SNPRS_Internal_{i}",
                     "Clade_Tips": normalized_tips,
@@ -391,7 +411,6 @@ if __name__ == "__main__":
     )
 
     ingroup_df,outgroup_df,ingroup_ids,outgroup_ids = split_ingroup_outgroup(split_df,tree_tips,is_blank,only_outgroup,is_mono,tree)
-    
     if outgroup_ids:
         overlap = set(ingroup_ids) & set(outgroup_ids)
         if overlap:
@@ -407,5 +426,5 @@ if __name__ == "__main__":
 
     else:
         terminal_named_df = assign_terminal(ingroup_df, ingroup_ids)
-        full_ingroup_df = add_internals(terminal_named_df, split_df,tree)
+        full_ingroup_df = add_internals(terminal_named_df, split_df,ingroup_ids,outgroup_ids,tree)
         pd.concat([full_ingroup_df,outgroup_df]).to_csv(out_csv, sep=",", index=False)
