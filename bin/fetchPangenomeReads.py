@@ -113,6 +113,7 @@ def pair_reads(group_df, read_filetype, forward_suffix, reverse_suffix):
 
 parser = argparse.ArgumentParser(description='Fetch Reads')
 parser.add_argument('--read_dir',dest="read_dir",required=True, type=str, help='Path to directory containing nested read files')
+parser.add_argument('--link_dir',dest="link_dir",default=None, type=str, help='Path to directory to link renamed files [Default: No links]')
 parser.add_argument('--group',dest = "output",required=True, type=str, help='Path to group output csv')
 parser.add_argument('--ext',dest="read_filetype",default='fastq.gz', type=str, help='Read extension')
 parser.add_argument('--forward',dest = "forward_suffix",default='_1.fastq.gz', type=str, help='Forward suffix')
@@ -149,6 +150,50 @@ if not paired_df["Sample_ID"].is_unique:
 # Save group file
 output_file = os.path.abspath(args.output)
 paired_df.to_csv(output_file, sep=",", index=False,header=False)
+
+# Link reads to link directory
+if args.link_dir:
+    
+    link_dir = os.path.abspath(args.link_dir)
+    
+    for _, row in paired_df.iterrows():
+        
+        sample_id = row["Sample_ID"]
+        
+        group0 = row["Group_0"] if pd.notna(row["Group_0"]) else None
+        group1 = row["Group_1"] if pd.notna(row["Group_1"]) else None
+        
+        fwd = row["Forward"]
+        rev = row["Reverse"]
+
+        name_parts = [sample_id] + [g for g in [group0, group1] if (g and g != "NO_GROUP")]
+        base_name = "_".join(name_parts)
+
+        fwd_name = f"{base_name}{forward_suffix}"
+        rev_name = f"{base_name}{reverse_suffix}"
+        se_name = f"{base_name}{read_filetype}"
+
+        # Build full destination paths
+        fwd_link = os.path.join(link_dir, fwd_name)
+        rev_link = os.path.join(link_dir, rev_name)
+        se_link = os.path.join(link_dir, se_name)
+
+        if pd.isna(rev):
+            se_link = os.path.join(link_dir, se_name)
+            src_dst_pairs = [(fwd, se_link)]
+        else:
+            fwd_link = os.path.join(link_dir, fwd_name)
+            rev_link = os.path.join(link_dir, rev_name)
+            src_dst_pairs = [(fwd, fwd_link), (rev, rev_link)]
+
+        for src, dst in src_dst_pairs:
+            try:
+                if os.path.islink(dst) or os.path.exists(dst):
+                    os.remove(dst)
+                os.symlink(os.path.abspath(src), dst)
+            except Exception as e:
+                print(f"Error linking {src} → {dst}: {e}")
+
 
 # Pass [Sample_ID,Group_0,Group_1,Forward,Reverse] data out to Nextflow
 paired_df.to_csv(sys.stdout, sep=",", index=False, header=False)

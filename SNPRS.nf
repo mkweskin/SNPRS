@@ -21,6 +21,32 @@ def date_log(message) {
     }
 }
 
+def validate_dir(path, flag) {
+    if (!path.isDirectory()) error "${path} provided by --${flag} does not exist"
+}
+
+def validate_file(path, flag) {
+    if (!path.exists()) error "${path} provided by --${flag} does not exist"
+}
+
+def check_nonos(){
+
+    if(params.genome_dir && params.fasta){
+        error "Cannot set --genome_dir and --fasta together"
+    } else if(params.genome_dir && params.pg_reads){
+        error "Cannot set --genome_dir and --pg_reads together"
+    } else if(params.fasta && params.pg_reads){
+        error "Cannot set --fasta and --pg_reads together"
+    }  else if(params.pg_reads && !params.size){
+        error "Cannot set assemble pangenome without --size"
+    } else if(params.pangenome && !params.pg_reads){
+        error "Cannot set assemble pangenome without --pg_reads"
+    }
+    
+    else{
+        return true
+    }
+}
 def cmd_args = workflow.commandLine
 
 // SNPRS Main Script
@@ -28,166 +54,169 @@ def cmd_args = workflow.commandLine
 
 timestamp = "${params.timestamp}"
 
-if(params.out){
-    snprs_directory = file(params.out)
-    parent_dir = snprs_directory.getParent()
-    if(!snprs_directory.isDirectory()){
-        if(!parent_dir.isDirectory()){
-            error "Parent directory for output is not a valid directory [${parent_dir}]..."
+// Check incompatibilities
+
+if(check_nonos()){
+
+    if(params.out){
+        snprs_directory = file(params.out)
+        parent_dir = snprs_directory.getParent()
+
+        if(snprs_directory.isDirectory()){
+            new_dir = false
         } else{
+            validate_dir(parent_dir,"out")
             snprs_directory.mkdirs()
             new_dir = true 
         }
+
+    } else if(params.joined || params.filtered || params.snp_dir ||  params.group_file || params.split_file || params.genome_dir){
+
+        if(params.joined){
+
+            test_dir = file(params.joined)
+            validate_dir(test_dir,"joined")
+            snprs_directory = test_dir.getParent().getParent()
+
+        } else if(params.filtered){
+
+            test_dir = file(params.filtered)
+            validate_dir(test_dir,"filtered")
+            snprs_directory = test_dir.getParent().getParent()
+
+        } else if(params.snp_dir){
+
+            test_dir = file(params.snp_dir)
+            validate_dir(test_dir,"snp_dir")
+            snprs_directory = test_dir.getParent().getParent()
+
+        } else if(params.split_file){
+
+            test_file = file(params.split_file)
+            validate_file(test_file,"split_file")
+            snprs_directory = test_file.getParent().getParent().getParent()
+
+
+        } else if(params.group_file){
+            
+            test_file = file(params.group_file)
+            validate_file(test_file,"group_file")
+            snprs_directory = test_file.getParent().getParent().getParent()
+
+        } else if(params.genome_dir){
+            
+            test_dir = file(params.genome_dir)
+            validate_dir(test_dir,"genome_dir")
+            snprs_directory = test_dir.getParent()
+
+        } else{
+            error "Output directory could not be determined"
+        }
+
     } else{
-        new_dir = false
+        snprs_directory = file("SNPRS_${timestamp}")
+        snprs_directory.mkdirs()
+        new_dir = true 
     }
-} else{
-    snprs_directory = file("SNPRS_${timestamp}")
-    snprs_directory.mkdirs()
-    new_dir = true 
-}
 
-// Log File
-log_directory = file("${snprs_directory}/Run_Logs")
-if(!log_directory.isDirectory()){
-    log_directory.mkdirs()
-}
+    // Log File
+    log_directory = file("${snprs_directory}/Run_Logs")
+    if(!log_directory.isDirectory()){
+        log_directory.mkdirs()
+    }
 
-log_file = file("${log_directory}/SNPRS_Log_${timestamp}.txt")
+    log_file = file("${log_directory}/SNPRS_Log_${timestamp}.txt")
 
-if (log_file.exists()) {
-    error "Log file ${log_file} already exists?"
-} else {
-    
-    // Cache log file info as params for other processes
-    params.log_directory = file(log_directory)
-    params.log_file = file(log_file)
-    
-    log("SNPRS Log File")
-    log("${new java.text.SimpleDateFormat('yyyy-MM-dd HH:mm:ss').format(new java.util.Date())}\n")
-    log("Command: ${cmd_args}\n")
+    if (log_file.exists()) {
+        error "Log file ${log_file} already exists?"
+    } else {
+        
+        // Cache log file info as params for other processes
+        params.log_directory = file(log_directory)
+        params.log_file = file(log_file)
+        
+        log("SNPRS Log File")
+        log("${new java.text.SimpleDateFormat('yyyy-MM-dd HH:mm:ss').format(new java.util.Date())}\n")
+        log("Command: ${cmd_args}\n")
 
-    if(new_dir){
-        tab_log("Created output directory: ${snprs_directory}")
+        if(new_dir){
+            tab_log("Created output directory: ${snprs_directory}")
+        } else{
+            tab_log("Found output directory: ${snprs_directory}")
+        }
+    }
+
+    // Major subdirectories
+    mapping_directory = file("${snprs_directory}/Mapping")
+    joined_directory = file("${snprs_directory}/Joined")
+    sra_directory = file("${snprs_directory}/SRA_Reads")
+    genome_directory = (params.genome_dir) ? file(params.genome_dir) : file("${snprs_directory}/Reference_Genome")
+
+    // Genome Name
+    new_genome_name = "SNPRS_${timestamp}"
+
+    if(!params.genome_dir){
+        if(params.genome_name){
+            new_genome_name = "${params.genome_name}"
+        } else if(params.fasta){
+            fasta_file = file(params.fasta)
+            validate_file(fasta_file,"fasta")
+            new_genome_name = fasta_file.getBaseName().replaceAll(/\.f(ast[an]?)(\.gz)?$/, '')
+        } 
     } else{
-        tab_log("Found output directory: ${snprs_directory}")
-    }
-}
-
-// Major subdirectories
-
-// Genome Directory
-genome_directory = file("${snprs_directory}/Reference_Genome")
-if(!genome_directory.isDirectory()){
-    genome_directory.mkdirs() 
-    tab_log("Created reference genome directory: ${genome_directory}...")
-} else{
-    tab_log("Found reference genome directory: ${genome_directory}...")
-}
-
-// Genome Name
-if(params.genome_name){
-    genome_name = "${params.genome_name}"
-} else if(params.fasta){
-    fasta_file = file(params.fasta)
-    genome_name = fasta_file.getBaseName().replaceAll(/\.f(ast[an]?)(\.gz)?$/, '')
-} else{
-    genome_name = "SNPRS_${timestamp}"
-}
-
-// Join ID
-if(params.validate){
-    join_id = "Validation"
-} else if(!params.join_id){
-    join_id = "Joined_SNPRS_${timestamp}"
-} else{
-    join_id = "${params.join_id}"
-}
-
-// Filter ID
-if(params.validate){
-    filter_id = "Filter_Validation"
-} else if(!params.filter_id){
-    filter_id = "Filter_SNPRS_${timestamp}"
-} else{
-    filter_id = "${params.filter_id}"
-}
-
-// SNP ID
-if(params.validate){
-    snp_id = "SNP_Validation"
-} else if(!params.snp_id){
-    snp_id = "SNP_SNPRS_${timestamp}"
-} else{
-    snp_id = "${params.snp_id}"
-}
-
-// Prep Directories
-genome_prep_directory = file("${genome_directory}/Prep_${genome_name}")
-genome_read_link_directory = file("${genome_directory}/Pangenome_Read_Links")
-
-// Mapping Directory
-mapping_directory = file("${snprs_directory}/Mapping")
-if(!mapping_directory.isDirectory()){
-    mapping_directory.mkdirs() 
-    tab_log("Created mapping directory: ${mapping_directory}...")
-} else{
-    tab_log("Found mapping directory: ${mapping_directory}...")
-}
-
-// Joined Directory
-joined_directory = file("${snprs_directory}/Joined")
-if(!joined_directory.isDirectory()){
-    joined_directory.mkdirs() 
-    tab_log("Created joining directory: ${joined_directory}...")
-} else{
-    tab_log("Found joining directory: ${joined_directory}...")
-}
-
-// SRA Directory
-sra_directory = file("${snprs_directory}/SRA_Reads")
-
-// SNP Directory
-if (params.split_file){
-    split_path = file(params.split_file)
-    snp_directory = split_path.getParent().getParent()
-    snp_id = split_path.getParent().getName()
-    tab_log("Found SNP directory: ${snp_directory}...")
-} else if (params.group_file){
-    group_path = file(params.group_file)
-    snp_directory = group_path.getParent().getParent()
-    snp_id = group_path.getParent().getName()
-    tab_log("Found SNP directory: ${snp_directory}...")
-} else if (params.snp_dir) {
-    
-    snp_dir_path = file(params.snp_dir)
-    if(!snp_dir_path.isDirectory()){
-        error "${snp_dir_path} provided by --snp_dir does not exist"
+        validate_dir(genome_directory,"genome_dir")
     }
 
-    snp_directory = snp_dir_path.getParent()
-    snp_id = snp_dir_path.getName()
-    tab_log("Found SNP directory: ${snp_directory}...")
- 
-} else{
+    // Subanalysis IDs
+    join_id = (params.join_id) ? "${params.join_id}" : "Joined_${timestamp}"
+    filter_id = (params.filter_id) ? "${params.filter_id}" : "Filtered_${timestamp}"
 
+    // SNP Directory
     snp_directory = file("${snprs_directory}/SNP_Analysis")
-    if(!snp_directory.isDirectory()){
-        snp_directory.mkdirs() 
-        tab_log("Created SNP directory: ${snp_directory}...")
-    } else{
-        tab_log("Found SNP directory: ${snp_directory}...")
+    snp_id = (params.snp_id) ? "${params.snp_id}" : "SNP_${timestamp}"
+
+    if (params.split_file){
+        split_path = file(params.split_file)
+        validate_file(split_path,"split_file")
+        snp_directory = split_path.getParent().getParent()
+        snp_id = split_path.getParent().getName()
+    } else if (params.group_file){
+        group_path = file(params.group_file)
+        validate_file(group_path,"group_file")
+        snp_directory = group_path.getParent().getParent()
+        snp_id = group_path.getParent().getName()
+    } else if (params.snp_dir) {
+        snp_dir_path = file(params.snp_dir)
+        validate_dir(snp_dir_path,"snp_dir")
+        snp_directory = snp_dir_path.getParent()
+        snp_id = snp_dir_path.getName()
     }
+
 }
+
+// Parameterize major directories
+params.final_snprs_directory = snprs_directory
+params.final_genome_directory = genome_directory
+params.final_mapping_directory = mapping_directory
+params.final_joined_directory = joined_directory
+params.final_snp_directory = snp_directory
+params.final_sra_directory = sra_directory
+
+// Parameterize IDs
+params.final_join_id = join_id
+params.final_filter_id = filter_id
+params.final_snp_id = snp_id
+params.new_genome_name = new_genome_name
 
 // Import workflows
 include {assembleGenome} from "./subworkflows/prepare_genome/main.nf"
 include {useFASTA} from "./subworkflows/prepare_genome/main.nf"
 include {checkGenomeDir} from "./subworkflows/prepare_genome/main.nf"
 
-include {mapReads} from "./subworkflows/mapping/main.nf"
-include {mapSRA} from "./subworkflows/mapping/main.nf"
 include {fetchBAM} from "./subworkflows/mapping/main.nf"
+include {fetchMapReads} from "./subworkflows/mapping/main.nf"
+include {fetchSRAReads} from "./subworkflows/mapping/main.nf"
+include {mapReads} from "./subworkflows/mapping/main.nf"
 
 include {bamToParquet} from "./subworkflows/convert_bam/main.nf"
 include {fetchRawParquet} from "./subworkflows/convert_bam/main.nf"
@@ -212,41 +241,165 @@ include {generateSNPs} from "./subworkflows/snp_tools/main.nf"
 
 workflow{
 
-    // Pangenome Info (Genome Name, Directory, FASTA file)
-    genome_info = Channel.empty()
-    joined_data = Channel.empty()
-    filtered_data = Channel.empty()
+    ///////////////////////////////////// FETCH GENOME ////////////////////////////////////////////////
 
-    if(params.no_ref){
-    
-        if(params.filtered){
-            filtered_path = file("${params.filtered}")
-            filtered_data = fetchFiltered(filtered_path)
-        } else if(params.joined){
-            join_path = file("${params.joined}")
-            joined_data = fetchJoin(join_path)
-        }
+    genome_info = Channel.empty()
+
+    if(params.pg_reads){
+        pg_reads = file(params.pg_reads)
+        genome_info = assembleGenome(pg_reads) | first
+    }  else if(params.fasta){      
+        fasta_file = file(params.fasta)
+        genome_info = useFASTA(fasta_file) | first
+    } else{
+        genome_info = checkGenomeDir(genome_directory) | first
     }
+
+
+
+
+
+}
+
+
+/*
+    //////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+    ///////////////////////////////////// FETCH RAW PARQUETS /////////////////////////////////////////
+
+    bam_data = Channel.empty()
+    raw_parquet_data = Channel.empty()
+
+    // Get existing BAM/Parquet files    
+    existing_bam_data = (params.bam_files) ? fetchBAM(params.bam_files) : Channel.empty()
+    existing_parquet_data = (params.raw_parquets) ? fetchRawParquet(params.raw_parquets) : Channel.empty()
+
+    // Check for read data to be mapped
+    map_read_data = (params.map_reads) ? fetchMapReads(params.map_reads) : Channel.empty()
+    sra_read_data = (params.map_sra) ? fetchSRAReads(params.map_sra,sra_directory): Channel.empty()
+    read_data = map_read_data.concat(sra_read_data) | collect | flatten | collate(3)
+
+    // Map reads
+    new_bam_data = read_data.combine(genome_info).map{it->(it[0],it[1],it[2],it[5],"${mapping_directory}")} | mapReads : Channel.empty()
+    bam_data = ("${params.runProfile}" == "local") ? existing_bam_data.concat(new_bam_data) : existing_bam_data.concat(new_bam_data) | collect | flatten | collate(2)
+    
+    // Convert to parquet
+
+    new_parquet_data = () bamToParquet(bam_data,genome_info,mapping_directory) : Channel.empty()    
+
+
+    
+    //////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+        if(params.map_reads || params.map_sra){
+
+
+            if(genome_info){
+                
+
+
+                all_reads = map_read_data.concat(sra_read_data) | collect | flatten | collate(2)
+                
+                // Map reads
+
+
+                // Convert to parquet
+                raw_parquet_data = ("${params.runProfile}" == "local") ? existing_parquet_data.concat(new_parquet_data) :  existing_parquet_data.concat(new_parquet_data) | collect | flatten | collate(2)
+
+            }
+        }
+
+    }
+}
+
+
+
+/*
+
+
+        }
+
+
+
+
+        if(params.validate || params.map_reads){
+            map_read_dir = (params.validate) ? file("${genome_read_link_directory}") : file("${params.map_reads}")
+            new_bam_data = (genome_info) ? mapReads(map_read_dir,genome_info,mapping_directory) : Channel.empty()
+        } else{
+            new_bam_data = Channel.empty()
+        }
+
+
+
+        
+
+        // Check for SRA mapping datas
+        sra_bam_data = (params.map_sra) ? mapSRA(params.map_sra,sra_directory,genome_info,mapping_directory) : Channel.empty()        
+
+
+
+
+
+
+
+
+    }
+}
+
+
+        if(params.no_ref){
+
+            if(params.filtered){
+                filtered_path = file("${params.filtered}")
+                filtered_data = fetchFiltered(filtered_path)
+            }
+            
+            if(params.joined){
+                join_path = file("${params.joined}")
+                joined_data = fetchJoin(join_path)
+            }
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    }
+
+}
+
+
+
+
+
+    // Pangenome Info (Genome Name, Directory, FASTA file)
+
+
+
 
     else{
         
-        // Assemble pangenome from reads
-        if(params.pg_reads){
-            pg_read_data = file(params.pg_reads)
-            genome_info = assembleGenome(genome_directory,genome_name,pg_read_data) | first
-        } 
 
         // Get reference information from an assembly
-        else if(params.fasta){
-            fasta_file = file(params.fasta)
-            genome_info = useFASTA(genome_directory,genome_name,fasta_file) | first
-        }
-
+        else
         // Get reference information from a folder
         else{
-            genome_dir = (params.genome_dir) ? file(params.genome_dir) : genome_directory
-            genome_info = checkGenomeDir(genome_dir) | first
-        }
+
 
         // Load in joined or filtered datasets if provided
 
@@ -266,34 +419,7 @@ workflow{
         
         else{
 
-            // Get BAM files    
-            existing_bam_data = (params.bam_files && !params.validate) ? fetchBAM(params.bam_files) : Channel.empty()
 
-            if(params.validate || params.map_reads){
-                map_read_dir = (params.validate) ? file("${genome_read_link_directory}") : file("${params.map_reads}")
-                new_bam_data = (genome_info) ? mapReads(map_read_dir,genome_info,mapping_directory) : Channel.empty()
-            } else{
-                new_bam_data = Channel.empty()
-            }
-
-            // Check for SRA mapping datas
-            sra_bam_data = (params.map_sra) ? mapSRA(params.map_sra,sra_directory,genome_info,mapping_directory) : Channel.empty()        
-
-            if("${params.runProfile}" == "local"){
-                bam_data = existing_bam_data.concat(new_bam_data).concat(sra_bam_data) | collect | flatten | collate(2)
-            } else{
-                bam_data = existing_bam_data.concat(new_bam_data).concat(sra_bam_data)
-            }
-
-            // Get raw parquets
-            existing_parquet_data = (params.raw_parquets && !params.validate) ? fetchRawParquet(params.raw_parquets) : Channel.empty()
-            new_parquet_data = (genome_info && bam_data) ? bamToParquet(bam_data,genome_info,mapping_directory) : Channel.empty()    
-
-            if("${params.runProfile}" == "local"){
-                raw_parquet_data = existing_parquet_data.concat(new_parquet_data) | collect | flatten | collate(2)
-            } else{
-                raw_parquet_data = existing_parquet_data.concat(new_parquet_data)
-            }
 
             // Get called bases
             existing_called_base_data = (params.called_bases && !params.validate) ? fetchCalledBases(params.called_bases) : Channel.empty()
@@ -354,3 +480,4 @@ workflow{
 
     snp_data = snp_pre_data | generateSNPs | collect | flatten | collate(2)
 }
+*/

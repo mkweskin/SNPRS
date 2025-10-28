@@ -133,8 +133,7 @@ def rebalance_first_level(level_df):
             return_df = pd.concat([return_df,second_level_df2[og_cols]])
     
     return return_df
-        
-    
+          
 def get_even_sampling(request_df):
     
     total_available = request_df["Base_Count"].sum()
@@ -332,6 +331,7 @@ if not has_first_level:
     global_outgroup_df['Requested_Bases'] = int(total_bases_requested/sample_count)
     global_outgroup_df['Final_Group'] = "Even_Sampling"
     request_df = global_outgroup_df.copy()
+
 else:  
     if has_global_outgroup:
         global_outgroup_bases = int(total_bases_requested*args.out_prop)
@@ -390,45 +390,45 @@ else:
                 slevel_df['Final_Group'] = f"{group}_{slevel}"
                 request_df = pd.concat([request_df,slevel_df])
         
-    request_df = request_df[["Sample_ID","Group_0","Group_1","Final_Group","Base_Count","Requested_Bases","Forward","Reverse"]].copy()
-    balanced_df = balance_bases(request_df)
-    
-    balanced_df["Sample_Type"] = np.where(
-    balanced_df["Allocated_Bases"] == balanced_df["Base_Count"],
-    "Link",
-    "Sample"
-    )
-    
-    balanced_df["Subsample_ID"] = [uuid.uuid4().hex[:12] for _ in range(len(balanced_df))]    
-    
-    summary_group0 = (
-        balanced_df.groupby("Group_0")[["Allocated_Bases", "Base_Count"]]
-        .sum()
-        .reset_index()
-    )
-    summary_group0["Level"] = "Group_0"
+request_df = request_df[["Sample_ID","Group_0","Group_1","Final_Group","Base_Count","Requested_Bases","Forward","Reverse"]].copy()
+balanced_df = balance_bases(request_df)
 
-    summary_final = (
-        balanced_df.groupby(["Group_0", "Final_Group"])[["Allocated_Bases", "Base_Count"]]
-        .sum()
-        .reset_index()
-    )
-    summary_final["Level"] = "Final_Group"
+balanced_df["Sample_Type"] = np.where(
+balanced_df["Allocated_Bases"] == balanced_df["Base_Count"],
+"Link",
+"Sample"
+)
 
-    summary_samples = (
-        balanced_df.groupby(["Group_0", "Final_Group", "Sample_ID", "Forward"])[["Allocated_Bases", "Base_Count"]]
-        .sum()
-        .reset_index()
-    )
-    summary_samples["Level"] = "Sample"
+balanced_df["Subsample_ID"] = [uuid.uuid4().hex[:12] for _ in range(len(balanced_df))]    
 
-    # Make all columns align
-    combined_summary = pd.concat([summary_group0, summary_final, summary_samples], ignore_index=True, sort=False)
+summary_group0 = (
+    balanced_df.groupby("Group_0")[["Allocated_Bases", "Base_Count"]]
+    .sum()
+    .reset_index()
+)
+summary_group0["Level"] = "Group_0"
 
-    # Save to TSV
-    allocation_file = f"{log_dir}/Sample_Allocation.tsv"
-    allocation_summary_file = f"{log_dir}/Sample_Allocation_Summary.tsv"
-    
-    combined_summary.to_csv(allocation_summary_file, sep="\t", index=False)
-    balanced_df.to_csv(allocation_file,index=False,sep="\t")
-    balanced_df[['Sample_ID','Subsample_ID','Forward','Reverse','Allocated_Bases','Sample_Type']].to_csv(sys.stdout, index=False, header=False)
+summary_final = (
+    balanced_df.groupby(["Group_0", "Final_Group"])[["Allocated_Bases", "Base_Count"]]
+    .sum()
+    .reset_index()
+)
+summary_final["Level"] = "Final_Group"
+
+summary_samples = (
+    balanced_df.groupby(["Group_0", "Final_Group", "Sample_ID", "Forward"])[["Allocated_Bases", "Base_Count"]]
+    .sum()
+    .reset_index()
+)
+summary_samples["Level"] = "Sample"
+
+# Make all columns align
+combined_summary = pd.concat([summary_group0, summary_final, summary_samples], ignore_index=True, sort=False)
+
+# Save to TSV
+allocation_file = f"{log_dir}/Sample_Allocation.tsv"
+allocation_summary_file = f"{log_dir}/Sample_Allocation_Summary.tsv"
+
+combined_summary.to_csv(allocation_summary_file, sep="\t", index=False)
+balanced_df.to_csv(allocation_file,index=False,sep="\t")
+balanced_df[['Sample_ID','Subsample_ID','Forward','Reverse','Allocated_Bases','Sample_Type']].to_csv(sys.stdout, index=False, header=False)
