@@ -55,7 +55,7 @@ def is_monophyletic(tree, tips):
 
 def split_ingroup_outgroup(split_df,all_taxa,is_blank,only_outgroup,is_mono,tree):
 
-    outgroup_df = pd.DataFrame(columns=["Clade_ID", "Clade_Tips", "Group_Type"])
+    outgroup_df = pd.DataFrame(columns=["Clade_ID", "Clade_Tips", "Clade_Type"])
 
     for col in ["Clade_ID", "Mirror_ID"]:
         split_df[col] = split_df[col].fillna("").astype(str).str.strip()
@@ -95,13 +95,13 @@ def split_ingroup_outgroup(split_df,all_taxa,is_blank,only_outgroup,is_mono,tree
         outgroup_rows.append({
             "Clade_ID": ingroup_id,
             "Clade_Tips": ingroup_tip_string,
-            "Group_Type": "Ingroup"
+            "Clade_Type": "Ingroup"
         })
 
         outgroup_rows.append({
             "Clade_ID": "Outgroup",
             "Clade_Tips": outgroup_tip_string,
-            "Group_Type": "Outgroup"
+            "Clade_Type": "Outgroup"
         })
 
         outgroup_df = pd.DataFrame(outgroup_rows)
@@ -119,8 +119,8 @@ def split_ingroup_outgroup(split_df,all_taxa,is_blank,only_outgroup,is_mono,tree
             .assign(
                 Clade_Tips=lambda df: df["Clade_Taxa"].astype(str).str.strip(),
                 Clade_ID=lambda df: df["Clade_Taxa"].astype(str).str.strip(),
-                Group_Type="Mono"
-            )[["Clade_ID", "Clade_Tips", "Group_Type"]]
+                Clade_Type="Mono"
+            )[["Clade_ID", "Clade_Tips", "Clade_Type"]]
         )
 
     else:
@@ -141,8 +141,8 @@ def split_ingroup_outgroup(split_df,all_taxa,is_blank,only_outgroup,is_mono,tree
                 .assign(
                     Clade_Tips=lambda df: df["Clade_Taxa"].astype(str).str.strip(),
                     Clade_ID=lambda df: df["Clade_Taxa"].astype(str).str.strip(),
-                    Group_Type=id_type
-                )[["Clade_ID", "Clade_Tips", "Group_Type"]]
+                    Clade_Type=id_type
+                )[["Clade_ID", "Clade_Tips", "Clade_Type"]]
             )
 
             all_splits = (
@@ -179,7 +179,7 @@ def split_ingroup_outgroup(split_df,all_taxa,is_blank,only_outgroup,is_mono,tree
                         ingroup_rows.append({
                             "Clade_ID": a_id if a_id else f"Auto_Group_{i}",
                             "Clade_Tips": string_a,
-                            "Group_Type":id_type
+                            "Clade_Type":id_type
                         })
                         
                         seen_tips.add(string_a)
@@ -190,7 +190,7 @@ def split_ingroup_outgroup(split_df,all_taxa,is_blank,only_outgroup,is_mono,tree
                         ingroup_rows.append({
                             "Clade_ID": b_id if b_id else f"Auto_Group_{i}",
                             "Clade_Tips": string_b,
-                            "Group_Type":id_type
+                            "Clade_Type":id_type
                         })
                         seen_tips.add(string_b)
                         i += 0 if b_id else 1              
@@ -246,7 +246,7 @@ def assign_terminal(ingroup_df, ingroup_ids):
         terminal_rows.append({
             "Clade_ID": terminal_clade_id,
             "Clade_Tips": ";".join(natsorted(terminal_tips)),
-            "Group_Type": "Terminal"
+            "Clade_Type": "Terminal"
         })
 
         remaining_ids -= terminal_tips
@@ -292,7 +292,7 @@ def assign_terminal(ingroup_df, ingroup_ids):
             named_internal_rows.append({
                 "Clade_ID": clade_id,
                 "Clade_Tips": clade_tips,
-                "Group_Type": "Internal"
+                "Clade_Type": "Internal"
             })
 
     named_internal_df = pd.DataFrame(named_internal_rows)
@@ -302,7 +302,7 @@ def add_internals(terminal_named_df, split_df,ingroup_ids,outgroup_ids,tree):
 
     terminal_sets = {
         row.Clade_ID: set(row.Clade_Tips.split(";"))
-        for _, row in terminal_named_df[terminal_named_df["Group_Type"] == "Terminal"].iterrows()
+        for _, row in terminal_named_df[terminal_named_df["Clade_Type"] == "Terminal"].iterrows()
     }
     
     existing_clade_tips = set(
@@ -349,7 +349,7 @@ def add_internals(terminal_named_df, split_df,ingroup_ids,outgroup_ids,tree):
             new_internal_rows.append({
                     "Clade_ID": f"SNPRS_Internal_{i}",
                     "Clade_Tips": normalized_tips,
-                    "Group_Type": "Internal"
+                    "Clade_Type": "Internal"
                 })
 
             existing_clade_tips.add(normalized_tips)

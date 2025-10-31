@@ -2,20 +2,24 @@
 nextflow.enable.dsl=2
 
 cpu = params.cpus as Integer
+sample_cpu = (params.sample_cpus) ? params.sample_cpus as Integer : cpu
+
+genome_directory = file(params.final_genome_directory)
+mapping_directory = file(params.final_mapping_directory)
+join_directory = file(params.final_joined_directory)
+joined_id = "${params.final_join_id}"
 
 workflow joinCalledBases{
     
     take:
     called_bases_data
-    joined_dir
-    join_id
 
     emit:
     joined_data
 
     main:
     
-    join_info = PREP_JOIN_DIR(joined_dir,join_id) | splitCsv | collect | flatten | collate(2)
+    join_info = called_bases_data.first().map{it->tuple(join_directory,joined_id)} | PREP_JOIN_DIR | splitCsv | collect | flatten | collate(2)
     
     called_base_file = called_bases_data.combine(join_info) | SAVE_CALLED_BASE_FILE | collect | map { it[0] }
     
@@ -30,7 +34,24 @@ workflow joinCalledBases{
     parquet_files = scaffold_parquet.combine(base_parquet)
     prep_code = join_info.combine(parquet_files)
     
-    joined_data = SCORE_SITES(prep_code) | splitCsv
+    pre_joined_data = SCORE_SITES(prep_code) | splitCsv | collect | flatten | collate(2)
+
+    joined_data = pre_joined_data | checkStop | collect | flatten | collate(2)
+
+
+}
+
+workflow checkStop{
+    take:
+    pre_joined_data
+
+    emit:
+    joined_data
+
+    main:
+
+    joined_data = (params.join) ? Channel.empty() : pre_joined_data
+
 }
 
 process PREP_JOIN_DIR{
@@ -39,22 +60,25 @@ process PREP_JOIN_DIR{
     cpus 1
 
     input:
-    val(joined_dir)
-    val(join_id)
+    tuple val(joined_dir), val(join_id)
 
     output:
     stdout
 
     script:
-    def join_dir = file("${joined_dir}/${join_id}")
-    def delete_cmd = (params.overwrite) ? "rm -rf $join_dir" : ":"
+    
+    join_dir = file("${joined_dir}/${join_id}")
+    delete_cmd = (params.overwrite) ? "rm -rf $join_dir"
+    : """
+if [ -d "$join_dir" ] ; then
+    echo "❌ Error: $join_dir already exists! Use --overwrite to replace." >&2
+    exit 1
+fi"""   
 
-    if(!params.overwrite && file(join_dir).isDirectory()){
-        error "$join_dir already exists, use --overwrite to remove existing directory..."
-    }
 
     """
     $delete_cmd &&
+    mkdir -p $joined_dir &&
     mkdir -p $join_dir &&
     echo -n $join_id,$join_dir
     """
@@ -64,6 +88,7 @@ process SAVE_CALLED_BASE_FILE{
     
     executor = "local"
     cpus 1
+    maxForks 0
 
     input:
     tuple val(sample_id),val(called_base_path),val(join_id),val(join_dir)
@@ -72,10 +97,11 @@ process SAVE_CALLED_BASE_FILE{
     stdout
 
     script:
+    def full_path = file(called_base_path)
     def called_base_file = file("${join_dir}/${join_id}_Called_Bases.txt")
 
     """
-    echo "$called_base_path" >> $called_base_file
+    echo "$full_path" >> $called_base_file
     echo -n $called_base_file 
     """
 }
@@ -107,7 +133,7 @@ process SCAFFOLD_SAMPLE{
 
     tag "Scaffold_${sample_id}"
 
-    cpus cpu
+    cpus sample_cpu
 
     input:
     tuple val(sample_id),val(called_base_path),val(join_id),val(join_dir),val(scaffold_parquet)
@@ -180,6 +206,25 @@ process SCORE_SITES{
     """
 }
 
+process CHECK_STOP {
+    
+    cpus 1
+    executor = "local"
+
+    input:
+    tuple val(id),val(dir)
+
+    output:
+    stdout
+
+    script:
+
+    def check_cmd = (params.join) ? "exit 0":"""echo -n "${id},${dir}" """
+    """
+    $check_cmd
+    """
+}
+
 
 //////////////////////////////////////////////////////////////////////
 
@@ -216,7 +261,7 @@ process FETCH_JOIN{
     }
 
     """
-    cd $join_dir
+    cd $join_directory
 
     suffixes=(
       "_Scaffold.parquet"
@@ -247,6 +292,6 @@ process FETCH_JOIN{
         fi
     done
 
-    echo -n "\$first,$join_dir"    
+    echo -n "\$first,$join_directory"    
     """
 }

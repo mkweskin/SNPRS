@@ -6,22 +6,24 @@ cpu = params.cpus as Integer
 workflow getAlignment{
     
     take:
-    input_data
+    filtered_data
 
     emit:
     alignment_file
 
     main:
 
-    alignment_file = GET_ALIGNMENT(input_data)
+    pre_alignment_file = GET_ALIGNMENT(filtered_data) | collect | collate(1)
+    alignment_file = pre_alignment_file | checkStop
 }
 
 process GET_ALIGNMENT{
+    
     executor = "local"
     cpus 1
 
     input:
-    tuple val(input_id),val(input_dir)
+    tuple val(filter_id),val(filter_dir)
 
     output:
     stdout
@@ -29,28 +31,38 @@ process GET_ALIGNMENT{
     script:
 
     def base2align_script = file("${projectDir}/bin/helper_scripts/bases2align.py")
-    def align_file = file("${input_dir}/${input_id}_aln.fasta")
 
-    def align_exists = align_file.isFile()
-
-    def base_file = file("${input_dir}/${input_id}_Bases.parquet")
+    def base_file = file("${filter_dir}/${filter_id}_Bases.parquet")
 
     if(!base_file.exists()){
         error "${base_file} does not exist..."
     }
 
-    delete_cmd = (params.overwrite) ? "rm -f $align_file" : ":"
+    def align_file = file("${filter_dir}/${filter_id}_aln.fasta")
 
-    def generate_cmd
-    if(params.overwrite || !align_exists){
-        generate_cmd = "python $base2align_script $base_file $align_file" 
-    } else{
-        generate_cmd = ":"
-    }
+    def delete_cmd = (params.overwrite) ? "rm -f $align_file" 
+    : """
+if [ -e "$align_file" ] ; then
+    echo "❌ Error: ${align_file} already exists! Use --overwrite to replace." >&2
+    exit 1
+fi"""    
 
     """
     $delete_cmd &&
-    $generate_cmd &&
+    python $base2align_script $base_file $align_file &&
     echo -n "${align_file}"
     """
+}
+
+workflow checkStop{
+    take:
+    pre_alignment_file
+
+    emit:
+    alignment_file
+
+    main:
+
+    alignment_file = (params.alignment) ? Channel.empty() : pre_alignment_file
+
 }

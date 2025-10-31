@@ -30,7 +30,6 @@ def parse_args():
     parser.add_argument("--out_dir", dest="output_directory", type=str, required=True,help="Path to store output files and temp directory")
     parser.add_argument("--filter_id", dest="filter_id", type=str, required=True,help="Output prefix [Default: <ANALYSIS_NAME>_{timestamp}]")
     parser.add_argument("--join_id", dest="join_id", type=str, required=True,help="Output prefix [Default: <ANALYSIS_NAME>_{timestamp}]")
-    parser.add_argument("--fasta", dest="ref_fasta", type=str, required=True,help="Path to associated reference assembly")
     
     # Filter args
     parser.add_argument("--types", dest="site_types", type=str, default='btqp',help="String of single letter codes for sites requested: F/f: Fixed; B/b: Biallelic; T/t: Triallelic; Q/q: Quadallelic; P/p: Pentallellic; S/s: Singleton-only; U/u: Unique singletons (Fixed + Singletons)")
@@ -274,15 +273,13 @@ join_id = args.join_id
 joined_directory = os.path.abspath(args.joined_dir)
 output_directory = os.path.abspath(args.output_directory)
 
-ref_fasta = os.path.abspath(args.ref_fasta)
-
 scaffold_file = os.path.join(joined_directory, f"{join_id}_Scaffold.parquet")
 code_file = os.path.join(joined_directory, f"{join_id}_Codes.parquet")
 site_file = os.path.join(joined_directory, f"{join_id}_Sites.parquet")
 base_file = os.path.join(joined_directory, f"{join_id}_Bases.parquet")
 missing_file = os.path.join(joined_directory, f"{join_id}_Missing.tsv")
 
-for f in [joined_directory,output_directory,ref_fasta,scaffold_file,code_file,site_file,base_file,missing_file]:
+for f in [joined_directory,output_directory,scaffold_file,code_file,site_file,base_file,missing_file]:
     if not os.path.exists(f):
         sys.exit(f"Expected file/directory {f} does not exist...")
 
@@ -301,18 +298,6 @@ for f in [new_scaffold_file,new_code_file,new_site_file,new_base_file,new_missin
 # Create temp directory
 temp_directory = os.path.join(output_directory, "SNPRS_Temp")
 os.mkdir(temp_directory)
-
-# Process reference FASTA
-raw_records = [(rec.id, str(rec.seq)) for rec in SeqIO.parse(ref_fasta, "fasta")]
-if not raw_records:
-    sys.exit("No contigs found.")
-
-raw_records = natsorted(raw_records, key=lambda x: x[0])
-total_sites = sum(len(seq) for _, seq in raw_records)
-
-contig_data = [(rec_id.strip().split()[0],len(seq)) for rec_id, seq in raw_records]
-index_key = {index: (contig_id,contig_length) for index,(contig_id, contig_length) in enumerate(contig_data)}
-contig_key = {contig_id: (index,contig_length) for index,(contig_id, contig_length) in enumerate(contig_data)}
 
 # Get sample count + IDs
 sample_ids = pl.scan_parquet(base_file).collect_schema().names()
@@ -412,7 +397,6 @@ filter_sites(site_file,new_site_file,new_missing_file,final_filter_file)
 filtering_info = {
     "Joined_Directory":joined_directory,
     "Filtered_Directory":output_directory,
-    "Ref_FASTA": ref_fasta,
     "Sample_IDs":sample_ids,
     "Site_Types":valid_site_types,
     "Gaps_Removed":str(remove_gaps),

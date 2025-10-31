@@ -13,8 +13,22 @@ workflow generateTree{
 
     main:
 
-    tree_file = GENERATE_TREE(input_data)
+    tree_file = input_data | GENERATE_TREE | splitCsv | collect | collate(1) | checkStop
 }
+
+workflow checkStop{
+    take:
+    pre_tree
+
+    emit:
+    tree_file
+
+    main:
+
+    tree_file = (params.tree) ? Channel.empty() : pre_tree
+
+}
+
 
 process GENERATE_TREE{
 
@@ -56,6 +70,7 @@ process GENERATE_TREE{
 }
 
 workflow fetchTree{
+
     take:
     tree_path
 
@@ -90,47 +105,42 @@ process FETCH_TREE{
 workflow makeSplitTable{
 
     take:
-    split_data
+    tree_file
 
     emit:
     tree_split_file
 
     main:
-    tree_split_file = MAKE_SPLIT_TABLE(split_data)
+    tree_split_file = tree_file | map{it->it[0]} | MAKE_SPLIT_TABLE
 }
 
 process MAKE_SPLIT_TABLE{
 
     input:
-    tuple val(tree_file),val(snp_id),val(snp_directory)
+    val(tree_file)
     
     output:
     stdout
 
     script:
 
-    if(params.snp_dir){
-        error "Can't run MAKE_SPLIT_TABLE if providing a --snp_dir"
-    }
-
-    def tree_path = file(tree_file)
     def get_split_script = file("${projectDir}/bin/tree2splits.py")
 
-    def snp_dir = file("${snp_directory}/${snp_id}")
-
-    def output_file = file("${snp_dir}/${snp_id}_TreeSplits.csv")
+    def tree_path = file(tree_file)
+    def tree_dir = tree_path.getParent()
+    def tree_name = tree_path.getBaseName()
+    def output_file = file("${tree_dir}/${tree_name}_TreeSplits.csv")
 
     def delete_cmd = (params.overwrite) 
-    ? "rm -f $snp_dir"
+    ? "rm -f $output_file"
     : """
-if [ -d "$snp_dir" ]; then
-    echo "❌ Error in MAKE_SPLIT_TABLE: ${snp_dir} already exists! Use --overwrite to replace." >&2
+if [ -e "$output_file" ]; then
+    echo "❌ Error: ${output_file} already exists! Use --overwrite to replace." >&2
     exit 1
 fi"""
 
     """
     $delete_cmd &&
-    mkdir $snp_dir &&
     python $get_split_script $tree_path $output_file &&
     echo -n $output_file
     """
@@ -152,7 +162,7 @@ workflow makeSNPGroups{
 process MAKE_SNP_GROUPS{
 
     input:
-    tuple val(tree_path),val(split_path),val(snp_id),val(snp_directory)
+    tuple val(tree_file),val(split_file)
 
     output:
     stdout
@@ -160,9 +170,14 @@ process MAKE_SNP_GROUPS{
     script:
 
     def get_group_script = file("${projectDir}/bin/splits2groups.py")
-    def snp_dir = file("${snp_directory}/${snp_id}")
 
-    def output_file = file("${snp_dir}/${snp_id}_Monophyletic_Groups.csv")
+    def tree_path = file(tree_file)
+    def split_path = file(split_file)
+
+    def split_dir = split_path.getParent()
+    def split_name = split_path.getBaseName().replaceFirst(/_TreeSplits$/, '')
+  
+    def output_file = file("${split_dir}/${split_name}_Monophyletic_Groups.csv")
 
     def mono_arg = (params.mono) ? "--mono" : ""
 
@@ -175,6 +190,7 @@ if [ -e "$output_file" ]; then
 fi"""
 
     """
+    $delete_cmd &&
     python $get_group_script --tree $tree_path --splits $split_path --out $output_file $mono_arg &&
     echo -n $output_file
     """

@@ -4,35 +4,28 @@ nextflow.enable.dsl=2
 cpu = params.cpus as Integer
 sample_cpu = (params.sample_cpus) ? params.sample_cpus as Integer : cpu
 
-///// Map reads and generate BAMS /////
-workflow mapReads{
+genome_directory = file(params.final_genome_directory)
+mapping_directory = file(params.final_mapping_directory)
+sra_directory = file(params.final_sra_directory)
+bbmap_ref = file("${mapping_directory}/ref")
 
+read_ext = params.read_ext
+forward = params.forward
+reverse = params.reverse
+
+///// Fetch Mapping Reads /////
+
+workflow fetchMapReads{
+    
     take:
-    read_data
-    genome_info
-    mapping_directory
+    read_dir
 
     emit:
-    bam_data
+    read_data
 
     main:
 
-    mapping_reads = genome_info
-    .map{it -> tuple(it[0],read_data,mapping_directory)}
-    | FETCH_MAP_READS
-    | splitCsv
-
-    if(file("${mapping_directory}/ref").isDirectory()){
-        bbmap_ref = "${mapping_directory}/ref"
-    } else{
-        bbmap_ref = genome_info.map{it->tuple(it[2],"${mapping_directory}")}
-        | BBMAP_INDEX
-        | collect
-        | map{it->it[0]}
-    }
-
-    bam_data = MAP_READS(mapping_reads,bbmap_ref,mapping_directory) 
-    | splitCsv
+    read_data = FETCH_MAP_READS(read_dir) | splitCsv
 }
 
 process FETCH_MAP_READS{
@@ -41,7 +34,7 @@ process FETCH_MAP_READS{
     cpus = 1
 
     input:
-    tuple val(genome_name),val(read_data),val(mapping_directory)
+    val(read_dir)
 
     output:
     stdout
@@ -49,32 +42,103 @@ process FETCH_MAP_READS{
     script:
 
     def fetchMapScript = file("${projectDir}/bin/fetchMappingReads.py")
- 
-    def ext
-    def forward
-    def reverse
-
-    if(params.validate){
-        ext = "${params.pg_ext}"
-        forward = "${params.pg_forward}"
-        reverse = "${params.pg_reverse}"
-    } else{
-        ext = "${params.map_ext}"
-        forward = "${params.map_forward}"
-        reverse = "${params.map_reverse}"
-    }
-
+    full_read = file("${read_dir}")
     """
-    python ${fetchMapScript} -d ${read_data} -e $ext -f $forward -r $reverse
+    python ${fetchMapScript} -d ${full_read} -e $read_ext -f $forward -r $reverse
     """
 }
+
+///// Download SRA Data /////
+workflow fetchSRAReads{
+    
+    take:
+    sra_file
+
+    emit:
+    read_data
+
+    main:
+
+    sra_ids = Channel.fromPath(sra_file).splitText().map{it.trim()}.filter{it}
+    read_data = sra_ids | STREAM_SRA | splitCsv
+}
+
+process STREAM_SRA{
+
+    tag "Fetch_${srr_id}"
+
+    cpus sample_cpu
+
+    input:
+    val(srr_id)
+
+    output:
+    stdout
+
+    script:
+
+    def sra_log_directory = file("${sra_directory}/logs")
+
+    def safe_ext = read_ext.startsWith('.') ? read_ext : ".${read_ext}"
+    def forward_out = file("${sra_directory}/${srr_id}${forward}")
+    def reverse_out = file("${sra_directory}/${srr_id}${reverse}")
+    def se_out = file("${sra_directory}/${srr_id}${safe_ext}")
+
+    def log_file = file("${sra_log_directory}/out_${srr_id}_Trim")
+
+    def ow_arg = (params.overwrite) ? "overwrite=t" : ""
+    def delete_cmd = (params.overwrite) ? "rm -f $forward_out $reverse_out $se_out" 
+    : """
+if [ -e "$forward_out" ] || [ -e "$reverse_out" ] || [ -e "$se_out" ] ; then
+    echo "❌ Error: SRA read files already exist! Use --overwrite to replace." >&2
+    exit 1
+fi"""    
+
+    """
+    mkdir -p $sra_directory &&
+    mkdir -p $sra_log_directory &&
+    rm -rf $log_file &&
+    $delete_cmd &&
+
+    layout=\$(vdb-dump -R1 -C READ_LEN -f tab $srr_id | awk '{if(NF>1) print "PE"; else print "SE"}') &&
+
+    if [[ "\$layout" == "PE" ]]; then
+        fasterq-dump --split-spot --stdout --threads ${sample_cpu} $srr_id | bbduk.sh int=f in=stdin.fq out=${forward_out} out2=${reverse_out} ref=adapters ktrim=r k=23 mink=11 hdist=1 tbo threads=${sample_cpu} $ow_arg &> $log_file &&
+        echo -n $srr_id,$forward_out,$reverse_out
+
+    else
+        fasterq-dump --stdout --threads ${sample_cpu} $srr_id | bbduk.sh in=stdin.fq out=${se_out} ref=adapters ktrim=r k=23 mink=11 hdist=1 threads=${sample_cpu} $ow_arg &> $log_file &&
+        echo -n $srr_id,$se_out,
+    fi
+    """
+}
+
+///// Map reads and generate BAMS /////
+workflow mapReads{
+
+    take:
+    mapping_data
+
+    emit:
+    bam_data
+
+    main:
+
+    reference_fasta = mapping_data.first().map{it->it[3]}
+    bbmap_ref = (bbmap_ref.isDirectory()) ? bbmap_ref : BBMAP_INDEX(reference_fasta) | collect | map{it->it[0]}
+    
+    read_data = mapping_data.map{it->tuple(it[0],it[1],it[2])}
+    
+    bam_data = MAP_READS(read_data,bbmap_ref) | splitCsv
+}
+
 
 process BBMAP_INDEX{
     
     cpus cpu
 
     input:
-    tuple val(genome_file),val(mapping_directory)
+    val(genome_file)
 
     output:
     stdout
@@ -82,11 +146,6 @@ process BBMAP_INDEX{
     script:
 
     def ref_directory = file("${mapping_directory}/ref")
-
-    def bam_dir = file ("${mapping_directory}/BAMs")
-    def parquet_dir = file ("${mapping_directory}/Raw_Parquet")
-    def base_call_dir = file ("${mapping_directory}/Base_Calls")
-
     def fasta_file = file("${genome_file}")
     
     """
@@ -94,42 +153,11 @@ process BBMAP_INDEX{
     XMX_MB=\$((TOTAL_MEM_MB * 70 / 100))
     XMX_ARG="-Xmx\${XMX_MB}m"
 
-    cd ${mapping_directory} &&
-    mkdir -p $bam_dir &&
-    mkdir -p $parquet_dir &&
-    mkdir -p $base_call_dir &&
+    mkdir -p $mapping_directory &&
+    cd $mapping_directory &&
     bbmap.sh threads=${cpu} ref=${fasta_file} \$XMX_ARG &&
     echo -n $ref_directory
     """
-}
-
-workflow mapSRA{
-    
-    take:
-    sra_file
-    sra_directory
-    genome_info
-    mapping_directory
-
-    emit:
-    sra_bam_data
-
-    main:
-
-    sra_ids = Channel.fromPath(sra_file).splitText().map{it.trim()}.filter{it}
-
-    sra_reads = sra_ids.combine(Channel.of([sra_directory, params.map_forward, params.map_reverse, params.map_ext])) | STREAM_SRA | splitCsv
-
-    if(file("${mapping_directory}/ref").isDirectory()){
-        bbmap_ref = "${mapping_directory}/ref"
-    } else{
-        bbmap_ref = genome_info.map{it->tuple(it[2],"${mapping_directory}")}
-        | BBMAP_INDEX
-        | collect
-        | map{it->it[0]}
-    }
-
-    sra_bam_data = MAP_READS(sra_reads,bbmap_ref,mapping_directory) | splitCsv
 }
 
 process MAP_READS{
@@ -141,7 +169,6 @@ process MAP_READS{
     input:
     tuple val(sample_id),val(forward),val(reverse)
     val(bbmap_ref)
-    val(mapping_directory)
 
     output:
     stdout
@@ -248,44 +275,3 @@ process FETCH_BAM{
     """
 }
 
-process STREAM_SRA {
-
-    tag "Fetch_${srr_id}"
-
-    cpus sample_cpu
-
-    input:
-    tuple val(srr_id),val(out_dir),val(forward),val(reverse),val(ext)
-
-    output:
-    stdout
-
-    script:
-
-    def out_directory = file("${out_dir}")
-    def sra_log_directory = file("${out_directory}/logs")
-
-    def forward_out = file("${out_directory}/${srr_id}${forward}")
-    def reverse_out = file("${out_directory}/${srr_id}${reverse}")
-    def se_out = file("${out_directory}/${srr_id}${ext}")
-
-    def log_file = file("${sra_log_directory}/out_${srr_id}_Trim")
-
-    def ow_arg = (params.overwrite) ? "overwrite=t": ""
-
-    """
-    mkdir -p $out_directory &&
-    mkdir -p $sra_log_directory &&
-
-    layout=\$(vdb-dump -R1 -C READ_LEN -f tab $srr_id | awk '{if(NF>1) print "PE"; else print "SE"}') &&
-
-    if [[ "\$layout" == "PE" ]]; then
-        fasterq-dump --split-spot --stdout --threads ${sample_cpu} $srr_id | bbduk.sh int=f in=stdin.fq out=${forward_out} out2=${reverse_out} ref=adapters ktrim=r k=23 mink=11 hdist=1 tbo threads=${sample_cpu} $ow_arg &> $log_file &&
-        echo -n $srr_id,$forward_out,$reverse_out
-
-    else
-        fasterq-dump --stdout --threads ${sample_cpu} $srr_id | bbduk.sh in=stdin.fq out=${se_out} ref=adapters ktrim=r k=23 mink=11 hdist=1 threads=${sample_cpu} $ow_arg &> $log_file &&
-        echo -n $srr_id,$se_out,
-    fi
-    """
-}

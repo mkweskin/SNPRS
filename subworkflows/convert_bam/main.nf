@@ -3,32 +3,43 @@ nextflow.enable.dsl=2
 
 cpu = params.cpus as Integer
 sample_cpu = (params.sample_cpus) ? params.sample_cpus as Integer : cpu
+mapping_directory = file(params.final_mapping_directory)
 
 ///// Convert BAM files to Parquet /////
 workflow bamToParquet{
 
     take:
-    bam_data
-    genome_info
-    mapping_directory
+    convert_data
     
     emit:
     raw_parquet_data
 
     main:
-    raw_parquet_data = BAM_TO_PARQUET(bam_data,genome_info,mapping_directory) | splitCsv()
+    pre_parquet_data = BAM_TO_PARQUET(convert_data) | splitCsv | collect | flatten | collate(2)
+    raw_parquet_data = pre_parquet_data | checkStop | collect | flatten | collate(2)
+}
+
+workflow checkStop{
+    take:
+    pre_parquet_data
+
+    emit:
+    raw_parquet_data
+
+    main:
+
+    raw_parquet_data = (params.map) ? Channel.empty() : pre_parquet_data
+
 }
 
 process BAM_TO_PARQUET{
     
     cpus sample_cpu
-
+    
     tag "BAM2PQ_${sample_id}"
 
     input:
-    tuple val(sample_id),val(sample_bam)
-    tuple val(genome_name),val(genome_dir),val(genome_file)
-    val(mapping_directory)
+    tuple val(sample_id),val(sample_bam),val(genome_file)
 
     output:
     stdout
@@ -37,8 +48,8 @@ process BAM_TO_PARQUET{
 
     def bam_convert_script = file("${projectDir}/bin/bam2parquet.py")
 
-    def output_directory = file("${mapping_directory}/Raw_Parquet")
-    def output_file = file("${output_directory}/${sample_id}_Raw.parquet")
+    def raw_parquet_directory = file("${mapping_directory}/Raw_Parquets")
+    def output_file = file("${raw_parquet_directory}/${sample_id}_Raw.parquet")
     
     def mapq = params.mapq as Integer
     def baseq = params.baseq as Integer
@@ -48,12 +59,12 @@ process BAM_TO_PARQUET{
     ? "rm -f $output_file"
     : """
 if [ -e "$output_file" ] ; then
-    echo "❌ Error: Output file already exists — use --overwrite to replace." >&2
+    echo "❌ Error: ${output_file} already exists — use --overwrite to replace." >&2
     exit 1
 fi"""
 
     """
-    mkdir -p ${output_directory} &&
+    mkdir -p ${raw_parquet_directory} &&
     $delete_cmd &&
     python ${bam_convert_script} --bam ${sample_bam} --fasta ${genome_file} --parquet ${output_file} --mapq ${mapq} --baseq ${baseq} --adj_coef ${adj_coef} &&
     echo -n "${sample_id},${output_file}"

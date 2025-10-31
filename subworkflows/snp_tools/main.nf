@@ -41,15 +41,16 @@ process GENERATE_SNPS{
     def snp_parquet = file("${snp_directory}/${snp_id}_SNPs.parquet")
     
     def delete_cmd = (params.overwrite)
-    ? "rm -f $output_json $output_comparisons $row_numbers $snp_parquet" 
+    ? "rm -rf $snp_directory" 
     : """
-if [ -e "$output_json" ] || [ -e "$output_comparisons" ] || [ -e "$row_numbers" ] || [ -e "$snp_parquet" ]; then
-    echo "❌ Error: SNP files or intermediates already exist! Use --overwrite to replace." >&2
+if [ -d "$snp_directory" ] ; then
+    echo "❌ Error: ${snp_directory} already exists! Use --overwrite to replace." >&2
     exit 1
 fi""" 
 
     """
     $delete_cmd &&
+    mkdir -p $snp_directory &&
     python $generate_snp_script --out $snp_directory --snp_id $snp_id --bases $base_parquet --groups $group_file --tree $tree_file &&
     echo -n "${snp_id},${snp_dir}"
     """

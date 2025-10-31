@@ -2,24 +2,26 @@
 nextflow.enable.dsl=2
 
 cpu = params.cpus as Integer
+mapping_directory = file(params.final_mapping_directory)
+filtered_id = "${params.final_filter_id}"
 
 workflow filterJoined{
+
     take:
-    genome_info
     joined_data
-    filter_id
 
     emit:
     filtered_data
 
     main:
 
-    filtered_data = genome_info
-    .combine(joined_data)
-    .map{it-> tuple(it[2],it[3],it[4],filter_id)}
+    pre_filtered_data = joined_data
+    .map{it-> tuple(it[0],it[1],filtered_id)}
     | FILTER_JOINED
     | splitCsv
-    | collect | flatten | collate(2)
+    | collect | flatten | collate(2) 
+
+    filtered_data = pre_filtered_data | checkStop | collect | flatten | collate(2)
 }
 
 process FILTER_JOINED{
@@ -27,7 +29,7 @@ process FILTER_JOINED{
     cpus cpu
 
     input:
-    tuple val(genome_file),val(join_id),val(join_directory),val(filter_id)
+    tuple val(join_id),val(join_directory),val(filter_id)
 
     output:
     stdout
@@ -35,7 +37,6 @@ process FILTER_JOINED{
     script:
 
     def filter_script = file("${projectDir}/bin/filter_joined.py")
-    def ref_fasta = file("${genome_file}")
     def joined_directory = file("${join_directory}")
     def filter_directory = file("${joined_directory}/${filter_id}")
 
@@ -61,11 +62,23 @@ fi"""
     """
     $delete_cmd &&
     mkdir $filter_directory &&
-    python $filter_script --join_dir $joined_directory --out_dir $filter_directory --filter_id $filter_id --join_id $join_id --fasta $ref_fasta --types $site_types $gap_arg $het_arg $invalid_arg $sing_arg $missing_arg &&
+    python $filter_script --join_dir $joined_directory --out_dir $filter_directory --filter_id $filter_id --join_id $join_id --types $site_types $gap_arg $het_arg $invalid_arg $sing_arg $missing_arg &&
     echo -n "${filter_id},${filter_directory}"
     """
 }
 
+workflow checkStop{
+    take:
+    pre_filtered_data
+
+    emit:
+    filtered_data
+
+    main:
+
+    filtered_data = (params.filter) ? Channel.empty() : pre_filtered_data
+
+}
 
 workflow fetchFiltered{
 

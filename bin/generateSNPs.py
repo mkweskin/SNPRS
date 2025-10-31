@@ -337,7 +337,7 @@ if __name__ == "__main__":
     # Process group file
     group_file = os.path.abspath(args.group_file)
     group_df = pd.read_csv(group_file, sep=",")
-    required_cols = {"Clade_ID", "Clade_Tips", "Group_Type"}
+    required_cols = {"Clade_ID", "Clade_Tips", "Clade_Type"}
     missing = required_cols - set(group_df.columns)
     if missing:
         raise ValueError(f"Missing columns in input: {', '.join(missing)}")
@@ -356,8 +356,8 @@ if __name__ == "__main__":
 
     # region 01: Check outgroup
 
-    outgroup_mask = group_df["Group_Type"] == "Outgroup"
-    ingroup_mask = group_df["Group_Type"] == "Ingroup"
+    outgroup_mask = group_df["Clade_Type"] == "Outgroup"
+    ingroup_mask = group_df["Clade_Type"] == "Ingroup"
 
     outgroup_count = outgroup_mask.sum()
     ingroup_count = ingroup_mask.sum()
@@ -424,7 +424,7 @@ if __name__ == "__main__":
 
     # region 03: Process ingroups
 
-    ingroup_df = group_df.loc[~group_df["Group_Type"].isin(["Ingroup", "Outgroup"])].copy()
+    ingroup_df = group_df.loc[~group_df["Clade_Type"].isin(["Ingroup", "Outgroup"])].copy()
 
     if ingroup_df.empty:
         raise ValueError("No ingroup rows remain after processing outgroup.")

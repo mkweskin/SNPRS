@@ -3,21 +3,36 @@ nextflow.enable.dsl=2
 
 cpu = params.cpus as Integer
 sample_cpu = (params.sample_cpus) ? params.sample_cpus as Integer : cpu
+mapping_directory = file(params.final_mapping_directory)
+
 
 ///// Call bases from raw parquets /////
 workflow callBases{
 
     take:
     raw_parquet_data
-    genome_info
-    mapping_directory
     
     emit:
     base_call_data
 
     main:
 
-    base_call_data = CALL_BASES(raw_parquet_data,genome_info,mapping_directory) | splitCsv()
+    pre_base_call_data = CALL_BASES(raw_parquet_data) | splitCsv | collect | flatten | collate(2)
+
+    base_call_data = pre_base_call_data | checkStop | collect | flatten | collate(2)
+}
+
+workflow checkStop{
+    take:
+    pre_base_call_data
+
+    emit:
+    base_call_data
+
+    main:
+
+    base_call_data = (params.call) ? Channel.empty() : pre_base_call_data
+
 }
 
 process CALL_BASES{
@@ -28,8 +43,6 @@ process CALL_BASES{
 
     input:
     tuple val(sample_id),val(sample_parquet)
-    tuple val(genome_name),val(genome_directory),val(genome_file)
-    val(mapping_directory)
 
     output:
     stdout
@@ -40,8 +53,14 @@ process CALL_BASES{
     def output_directory = file("${mapping_directory}/Base_Calls")
     def output_file = file("${output_directory}/${sample_id}_Called.parquet")
 
-    def delete_cmd = (params.overwrite) ? "rm -rf $output_file" : ":"
-    def min_depth = params.min_read as Integer
+    def delete_cmd = (params.overwrite) ? "rm -rf $output_file" 
+    : """
+if [ -e "$output_file" ] ; then
+    echo "❌ Error: ${output_file} file already exists — use --overwrite to replace." >&2
+    exit 1
+fi"""
+
+    def min_depth = params.min_depth as Integer
     def allele_cov = params.min_allele as Integer
     def min_freq = params.min_freq as Float
     def ploidy = params.ploidy as Integer

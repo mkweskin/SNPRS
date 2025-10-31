@@ -57,7 +57,22 @@ workflow assembleGenome{
     ray_fasta = ASSEMBLE_PANGENOME(subset_folder)
 
     // Index pangenome
-    return_pangenome = PROCESS_RAY(ray_fasta) | splitCsv | CHECK_STOP | collect | flatten | collate(3) 
+    pre_genome = PROCESS_RAY(ray_fasta) | splitCsv | collect | flatten | collate(3) 
+
+    return_pangenome = pre_genome | checkStop | collect | flatten | collate(3)
+
+}
+
+workflow checkStop{
+    take:
+    pre_genome
+
+    emit:
+    return_pangenome
+
+    main:
+
+    return_pangenome = (params.pangenome) ? Channel.empty() : pre_genome
 
 }
 
@@ -292,25 +307,6 @@ process PROCESS_RAY{
     samtools faidx ${genome_file}
     python $index_script --fasta $genome_file --make_parquet
     echo -n "${new_genome_name},${genome_directory},${genome_file}"
-    """
-}
-
-process CHECK_STOP {
-    
-    cpus 1
-    executor = "local"
-
-    input:
-    tuple val(name),val(dir),val(file)
-
-    output:
-    stdout
-
-    script:
-
-    def check_cmd = (params.pangenome) ? "exit 0":"""echo -n "${name},${dir},${file}" """
-    """
-    $check_cmd
     """
 }
 
