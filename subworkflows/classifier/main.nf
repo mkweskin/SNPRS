@@ -24,7 +24,7 @@ process CLASSIFY_SAMPLE{
     cpus sample_cpu
 
     input:
-    tuple val(sample_id),val(called_bases_file),val(snp_directory),val(snp_id)
+    tuple val(genome_id),val(genome_directory),val(sample_id),val(called_bases_file),val(snp_directory),val(snp_id)
 
     output:
     stdout
@@ -33,6 +33,9 @@ process CLASSIFY_SAMPLE{
 
     def snp_path = file("${snp_directory}/${snp_id}")
     def classified_dir = file("${classified_directory}/${snp_id}")
+
+    
+
     def output_parquet = file("${classified_dir}/${sample_id}_Classified.parquet")
     def output_csv = file("${classified_dir}/${sample_id}_Classified.csv")
 

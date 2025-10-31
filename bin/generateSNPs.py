@@ -20,6 +20,7 @@ def parse_args():
     parser.add_argument("--tree", dest="tree_file", type=str, required=True,help="Path to tree file used to generate --splits")
     parser.add_argument("--groups", dest="group_file", type=str, required = True, help="Path to group file created from --tree")
     parser.add_argument("--bases", dest="base_file", type=str, required=True,help="Path to _Bases.parquet")
+    parser.add_argument("--scaffold", dest="scaffold_file", type=str, required=True,help="Path to _Scaffold.parquet")
 
     return parser.parse_args()
 
@@ -225,12 +226,17 @@ def get_ingroup_snps(ingroup_parquet,outgroup_parquet,ingroup_id,outgroup_id,tem
 
     return raw_snp_parquet,joined_row_count
 
-def compileSNPs(non_zero_comparisons, snp_id,output_directory, temp_directory,base_parquet,tree_file,group_file):
+def compileSNPs(non_zero_comparisons, snp_id,output_directory, temp_directory,base_parquet,scaffold_parquet,tree_file,group_file):
 
     output_file = os.path.join(output_directory,f"{snp_id}_SNPs.parquet")
     output_json = os.path.join(output_directory,f"{snp_id}.json")
-    row_file = os.path.join(output_directory, f"{snp_id}_Row_Numbers.txt")
     out_csv = os.path.join(output_directory,f"{snp_id}_Comparisons.csv")
+
+    row_count = pq.ParquetFile(scaffold_parquet).metadata.num_rows
+    lazy_row_numbers = pl.LazyFrame({"row_nr": list(range(row_count))})
+    lazy_scaffold = pl.scan_parquet(scaffold_parquet)
+    
+    rowed_scaffold = pl.concat([lazy_row_numbers,lazy_scaffold],how="horizontal")
 
     comparisons = [ (row['Ingroup'],row['Comparison']) for _, row in non_zero_comparisons.iterrows()]
     
@@ -273,41 +279,30 @@ def compileSNPs(non_zero_comparisons, snp_id,output_directory, temp_directory,ba
     if not lazy_list:
         raise ValueError(f"No SNPs could be processed..")
 
-    combined_lazy = pl.concat(lazy_list).sort('row_nr')
+    combined_lazy = pl.concat(lazy_list).sort('row_nr').join(rowed_scaffold,on="row_nr",how="left").sort(['contig_index','contig_position'])
 
     combined_lazy_count = combined_lazy.select(pl.len()).collect().item()
+    combined_unique_count = combined_lazy.select(["contig_index", "contig_position"]).unique().select(pl.len()).collect().item()
 
     if combined_lazy_count == 0:
         raise ValueError(f"No SNPs could be processed..")
-
     (
         combined_lazy
+        .select(['contig_index','contig_position','Ingroup','Outgroup','In_Base','Out_Base','In_Count','Out_Count'])
         .collect(streaming=True)
         .write_parquet(output_file,compression="snappy")
     )
 
-    unique_rownrs = (
-        combined_lazy
-        .select("row_nr")
-        .unique()
-        .sort("row_nr")
-    ).collect(streaming=True)
-
-    unique_rownrs.write_csv(row_file, include_header=False)
-
-    total_row_count = pq.ParquetFile(output_file).metadata.num_rows
-    unique_row_count = sum(1 for _ in open(row_file, "rb"))
-    
     json_info = {
         "SNP_ID":snp_id,
         "Base_Parquet":base_parquet,
+        "Scaffold_Parquet":scaffold_parquet,
         "Tree_File":tree_file,
         "Groups_File":group_file,
         "SNP_Parquet":output_file,
         "Comparison_Table":out_csv,
-        "Row_Numbers":row_file,
-        "Total_Rows":str(total_row_count),
-        "Unique_Positions":str(unique_row_count)
+        "Total_Rows":str(combined_lazy_count),
+        "Unique_Positions":str(combined_unique_count)
         }
 
     with open(output_json, "w", encoding="utf-8") as f:
@@ -349,6 +344,7 @@ if __name__ == "__main__":
 
     # Process parquet data
     base_parquet = os.path.abspath(args.base_file)
+    scaffold_parquet = os.path.abspath(args.scaffold_file)
     parquet_ids = pl.scan_parquet(base_parquet).collect_schema().names()
     assert set(parquet_ids) == tree_tips, "Parquet taxa do not match tree taxa"
 
@@ -519,6 +515,6 @@ if __name__ == "__main__":
     non_zero_comparisons = all_comparisons_df.loc[all_comparisons_df["SNP_Count"] > 0].copy()
 
     if not non_zero_comparisons.empty:
-        compileSNPs(non_zero_comparisons, snp_id, output_directory, temp_directory,base_parquet,tree_file,group_file)
+        compileSNPs(non_zero_comparisons, snp_id, output_directory, temp_directory,base_parquet,scaffold_parquet,tree_file,group_file)
     
     # endregion

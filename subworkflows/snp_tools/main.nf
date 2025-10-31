@@ -27,19 +27,17 @@ process GENERATE_SNPS{
     script:
 
     def generate_snp_script = file("${projectDir}/bin/generateSNPs.py")
+    def tree_script = file("${projectDir}/bin/helper_scripts/groups2tree.py")
 
     if(params.snp_dir){
         error "Can't run GENERATE_SNPS if providing a --snp_dir"
     }
 
+    def scaffold_parquet = file("${data_dir}/${data_id}_Scaffold.parquet")
     def base_parquet = file("${data_dir}/${data_id}_Bases.parquet")
     def snp_directory = file("${snp_dir}/${snp_id}")
+    def group_tree = file("${snp_directory}/${snp_id}_SNP_Groups.nwk")
 
-    def output_json = file("${snp_directory}/${snp_id}.json")
-    def output_comparisons = file("${snp_directory}/${snp_id}_Comparisons.csv")
-    def row_numbers = file("${snp_directory}/${snp_id}_Row_Numbers.txt")
-    def snp_parquet = file("${snp_directory}/${snp_id}_SNPs.parquet")
-    
     def delete_cmd = (params.overwrite)
     ? "rm -rf $snp_directory" 
     : """
@@ -51,7 +49,8 @@ fi"""
     """
     $delete_cmd &&
     mkdir -p $snp_directory &&
-    python $generate_snp_script --out $snp_directory --snp_id $snp_id --bases $base_parquet --groups $group_file --tree $tree_file &&
+    python $tree_script $group_file $group_tree &&
+    python $generate_snp_script --out $snp_directory --snp_id $snp_id --bases $base_parquet --scaffold $scaffold_parquet --groups $group_file --tree $tree_file &&
     echo -n "${snp_id},${snp_dir}"
     """
 }

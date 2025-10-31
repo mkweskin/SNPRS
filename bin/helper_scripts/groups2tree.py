@@ -4,13 +4,13 @@ import pandas as pd
 from ete3 import Tree,TreeNode
 
 # Load CSV
-if len(sys.argv) < 2:
-    print(f"Usage: {sys.argv[0]} <input_csv>")
+if len(sys.argv) < 3:
+    print(f"Usage: {sys.argv[0]} <input_csv> <output_tree>")
     sys.exit(1)
 
 input_csv = os.path.abspath(sys.argv[1])
+output_file = os.path.abspath(sys.argv[2])
 internal_df = pd.read_csv(input_csv)
-output_file = os.path.join(os.path.dirname(input_csv), "SNP_Groups.nwk")
 
 # Create leaf nodes for all tips
 all_tips = set()
@@ -53,8 +53,8 @@ if len(roots) > 1:
 else:
     root_node = roots[0]
 
-if 'Group_Type' in internal_df.columns and any(internal_df['Group_Type'].str.lower() == 'outgroup'):
-    outgroup_row = internal_df[internal_df['Group_Type'].str.lower() == 'outgroup'].iloc[0]
+if 'Clade_Type' in internal_df.columns and any(internal_df['Clade_Type'].str.lower() == 'outgroup'):
+    outgroup_row = internal_df[internal_df['Clade_Type'].str.lower() == 'outgroup'].iloc[0]
     outgroup_tips = set(outgroup_row['Clade_Tips'].split(';'))
 
     # Convert to Tree for rooting support

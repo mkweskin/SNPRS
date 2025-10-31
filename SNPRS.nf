@@ -199,7 +199,6 @@ if(check_nonos()){
 
         check_output_json = file("${snp_directory}/${snp_id}/${snp_id}.json")
         check_output_comparisons = file("${snp_directory}/${snp_id}/${snp_id}_Comparisons.csv")
-        check_row_numbers = file("${snp_directory}/${snp_id}/${snp_id}_Row_Numbers.txt")
         check_snp_parquet = file("${snp_directory}/${snp_id}/${snp_id}_SNPs.parquet")
 
         validate_file(check_output_json,"snp_dir")
@@ -325,7 +324,7 @@ workflow{
 
     if(params.classify){
       
-        classified_data = called_bases_data.map{it->tuple(it[0],it[1],snp_directory,snp_id)} | classifySample | collect | flatten | collate(3)
+        classified_data = genome_info.combine(called_bases_data).map{it->tuple(it[0],it[1],it[3],it[4],snp_directory,snp_id)} | classifySample | collect | flatten | collate(3)
         classified_data | view
         
     } else{
