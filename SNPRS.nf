@@ -51,6 +51,10 @@ def check_nonos(){
         error "Split file provided by --split_file does not exist"
     } else if(params.group_file && !file(params.group_file).exists()){
         error "Group file provided by --group_file does not exist"
+    } else if(params.classify && !params.snp_dir){
+        error "Cannot run in classifier mode (--classify) without providing SNP information (--snp_dir)"
+    } else if(params.classify && (!params.map_reads && !params.map_sra && !params.bam_files && !params.raw_parquets && !params.called_bases)){
+        error "Cannot run in classifier mode (--classify) without data (--map_reads/--map_sra/--bam_files/--raw_parquets/--called_bases)"
     }
 
     return true
@@ -164,6 +168,7 @@ if(check_nonos()){
     mapping_directory = file("${snprs_directory}/Mapping")
     joined_directory = file("${snprs_directory}/Joined")
     sra_directory = file("${snprs_directory}/SRA_Reads")
+    classified_directory = file("${snprs_directory}/Classified")
     genome_directory = (params.genome_dir) ? file(params.genome_dir) : file("${snprs_directory}/Reference_Genome")
 
     // Genome Name
@@ -192,10 +197,10 @@ if(check_nonos()){
         snp_directory = snp_dir_path.getParent()
         snp_id = snp_dir_path.getName()
 
-        check_output_json = file("${snp_directory}/${snp_id}.json")
-        check_output_comparisons = file("${snp_directory}/${snp_id}_Comparisons.csv")
-        check_row_numbers = file("${snp_directory}/${snp_id}_Row_Numbers.txt")
-        check_snp_parquet = file("${snp_directory}/${snp_id}_SNPs.parquet")
+        check_output_json = file("${snp_directory}/${snp_id}/${snp_id}.json")
+        check_output_comparisons = file("${snp_directory}/${snp_id}/${snp_id}_Comparisons.csv")
+        check_row_numbers = file("${snp_directory}/${snp_id}/${snp_id}_Row_Numbers.txt")
+        check_snp_parquet = file("${snp_directory}/${snp_id}/${snp_id}_SNPs.parquet")
 
         validate_file(check_output_json,"snp_dir")
         validate_file(check_output_comparisons,"snp_dir")
@@ -215,6 +220,7 @@ params.final_mapping_directory = mapping_directory
 params.final_joined_directory = joined_directory
 params.final_snp_directory = snp_directory
 params.final_sra_directory = sra_directory
+params.final_classified_directory = classified_directory
 
 // Parameterize IDs
 params.final_join_id = join_id
@@ -252,6 +258,7 @@ include {makeSNPGroups} from "./subworkflows/tree_tools/main.nf"
 include {generateTree} from "./subworkflows/tree_tools/main.nf"
 
 include {generateSNPs} from "./subworkflows/snp_tools/main.nf"
+include {classifySample} from "./subworkflows/classifier/main.nf"
 
 workflow{
 
@@ -265,6 +272,7 @@ workflow{
     joined_data = Channel.empty()
     filtered_data = Channel.empty()
     snp_data = Channel.empty()
+    classified_data = Channel.empty()
 
     // Get existing files    
     existing_bam_data = (params.bam_files) ? fetchBAM(params.bam_files) : Channel.empty()
@@ -312,43 +320,54 @@ workflow{
     new_called_base_data = raw_parquet_data | callBases
     called_bases_data = new_called_base_data.concat(existing_called_base_data) | collect | flatten | collate(2)
 
-    ///////////////////////////////////// JOIN CALLED BASES ///////////////////////////////////////////
 
-    joined_data = (params.joined) ? fetchJoin(params.joined) : joinCalledBases(called_bases_data)
+    //////////////////////////////////////// CLASSIFY /////////////////////////////////////////////////
+
+    if(params.classify){
+      
+        classified_data = called_bases_data.map{it->tuple(it[0],it[1],snp_directory,snp_id)} | classifySample | collect | flatten | collate(3)
+        classified_data | view
+        
+    } else{
+
+    ///////////////////////////////////// JOIN CALLED BASES ///////////////////////////////////////////
+    
+        joined_data = (params.joined) ? fetchJoin(params.joined) : joinCalledBases(called_bases_data)
 
     ///////////////////////////////////// FILTER JOINED DATA //////////////////////////////////////////
 
-    filtered_data = (params.filtered) ? fetchFiltered(params.filtered) : filterJoined(joined_data)
+        filtered_data = (params.filtered) ? fetchFiltered(params.filtered) : filterJoined(joined_data)
 
     ///////////////////////////////////// GET ALIGNMENT ///////////////////////////////////////////////
 
-    if(!params.filter && !params.snp_dir && !params.split_file && !params.group_file && !params.alignment_file){
-        alignment_file = getAlignment(filtered_data) | collect | flatten | collate(1)
-    }
+        if(!params.filter && !params.snp_dir && !params.split_file && !params.group_file && !params.alignment_file){
+            alignment_file = getAlignment(filtered_data) | collect | flatten | collate(1)
+        }
 
     //////////////////////////////////////// GET TREE /////////////////////////////////////////////////
 
-    if(!params.alignment && !params.snp_dir && !params.split_file && !params.group_file){
-        tree_file = filtered_data.combine(alignment_file) | generateTree | collect | flatten | collate(1) // REMOVE FILTERED
-    }
+        if(!params.alignment && !params.snp_dir && !params.split_file && !params.group_file){
+            tree_file = filtered_data.combine(alignment_file) | generateTree | collect | flatten | collate(1) // REMOVE FILTERED
+        }
 
     //////////////////////////////////////// GET SPLITS ///////////////////////////////////////////////
 
-    if(!params.tree && !params.snp_dir && !params.split_file && !params.group_file){
-         split_file = tree_file | makeSplitTable | collect | flatten | collate(1)
-    }
+        if(!params.tree && !params.snp_dir && !params.split_file && !params.group_file){
+            split_file = tree_file | makeSplitTable | collect | flatten | collate(1)
+        }
 
     //////////////////////////////////////// GET GROUPS ///////////////////////////////////////////////
 
-    if(!params.tree && !params.split && !params.snp_dir && !params.group_file && params.split_file){
-        group_file = tree_file.combine(split_file) | makeSNPGroups | collect | flatten | collate(1)
-    }
+        if(!params.tree && !params.split && !params.snp_dir && !params.group_file && params.split_file){
+            group_file = tree_file.combine(split_file) | makeSNPGroups | collect | flatten | collate(1)
+        }
 
     //////////////////////////////////////// GET SNPS //////////////////////////////////////////////////
 
-    if(params.snp_dir){
-        snp_data = Channel.from(tuple(snp_id,snp_directory))
-    } else if(params.group_file){        
-        snp_data = filtered_data.combine(tree_file).combine(group_file).map{it->tuple(it[0],it[1],snp_id,snp_directory,it[2],it[3])} | generateSNPs | collect | flatten | collate(2)
+        if(params.snp_dir){
+            snp_data = Channel.from(tuple(snp_id,snp_directory))
+        } else if(params.group_file){        
+            snp_data = filtered_data.combine(tree_file).combine(group_file).map{it->tuple(it[0],it[1],snp_id,snp_directory,it[2],it[3])} | generateSNPs | collect | flatten | collate(2)
+        }
     }
 }   
