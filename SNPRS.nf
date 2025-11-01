@@ -318,9 +318,6 @@ workflow{
         
     } else{
 
-        joined_data = Channel.empty()
-        filtered_data = Channel.empty()
-        snp_data = Channel.empty()
         tree_file = (params.tree_file) ? Channel.fromPath(params.tree_file) : Channel.empty()
         alignment_file = (params.alignment_file) ? Channel.fromPath(params.alignment_file) : Channel.empty()
         split_file = (params.split_file) ? Channel.fromPath(params.split_file) : Channel.empty()
@@ -342,7 +339,7 @@ workflow{
 
     //////////////////////////////////////// GET TREE /////////////////////////////////////////////////
 
-        if(!params.alignment && !params.snp_dir && !params.split_file && !params.group_file){
+        if(!params.alignment && !params.snp_dir && !params.split_file && !params.group_file && !params.tree_file){
             tree_file = filtered_data.combine(alignment_file) | generateTree | collect | flatten | collate(1)
         }
 
