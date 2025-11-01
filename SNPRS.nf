@@ -55,10 +55,13 @@ def check_nonos(){
         error "Cannot run in classifier mode (--classify) without providing SNP information (--snp_dir)"
     } else if(params.classify && (!params.map_reads && !params.map_sra && !params.bam_files && !params.raw_parquets && !params.called_bases)){
         error "Cannot run in classifier mode (--classify) without data (--map_reads/--map_sra/--bam_files/--raw_parquets/--called_bases)"
+    } else if(params.classify && params.pg_reads){
+        error "Cannot run in classifier mode (--classify) and assemble a pangenome (--pg_reads) in a single run"
     }
 
     return true
 }
+
 def cmd_args = workflow.commandLine
 
 // SNPRS Main Script
@@ -168,7 +171,7 @@ if(check_nonos()){
     mapping_directory = file("${snprs_directory}/Mapping")
     joined_directory = file("${snprs_directory}/Joined")
     sra_directory = file("${snprs_directory}/SRA_Reads")
-    classified_directory = file("${snprs_directory}/Classified")
+    classified_directory = file("${snprs_directory}/Classification")
     genome_directory = (params.genome_dir) ? file(params.genome_dir) : file("${snprs_directory}/Reference_Genome")
 
     // Genome Name
@@ -210,24 +213,25 @@ if(check_nonos()){
         snp_directory = file("${snprs_directory}/SNP_Analysis")
         snp_id = (params.snp_id) ? "${params.snp_id}" : "SNP_${timestamp}"
     }
+
+    // Parameterize major directories
+    params.final_snprs_directory = snprs_directory
+    params.final_genome_directory = genome_directory
+    params.final_mapping_directory = mapping_directory
+    params.final_joined_directory = joined_directory
+    params.final_snp_directory = snp_directory
+    params.final_sra_directory = sra_directory
+    params.final_classified_directory = classified_directory
+
+    // Parameterize IDs
+    params.final_join_id = join_id
+    params.final_filter_id = filter_id
+    params.final_snp_id = snp_id
+    params.new_genome_name = new_genome_name
 }
 
-// Parameterize major directories
-params.final_snprs_directory = snprs_directory
-params.final_genome_directory = genome_directory
-params.final_mapping_directory = mapping_directory
-params.final_joined_directory = joined_directory
-params.final_snp_directory = snp_directory
-params.final_sra_directory = sra_directory
-params.final_classified_directory = classified_directory
+// Import subworkflows
 
-// Parameterize IDs
-params.final_join_id = join_id
-params.final_filter_id = filter_id
-params.final_snp_id = snp_id
-params.new_genome_name = new_genome_name
-
-// Import workflows
 include {assembleGenome} from "./subworkflows/prepare_genome/main.nf"
 include {useFASTA} from "./subworkflows/prepare_genome/main.nf"
 include {checkGenomeDir} from "./subworkflows/prepare_genome/main.nf"
@@ -261,30 +265,10 @@ include {classifySample} from "./subworkflows/classifier/main.nf"
 
 workflow{
 
-    ///////////////////////////////////// INITIALIZE CHANNELS /////////////////////////////////////////
+    ///////////////////////////////////////// FETCH GENOME ////////////////////////////////////////////
 
     genome_info = Channel.empty()
-    all_read_data = Channel.empty()
-    bam_data = Channel.empty()
-    raw_parquet_data = Channel.empty()
-    called_bases_data = Channel.empty()
-    joined_data = Channel.empty()
-    filtered_data = Channel.empty()
-    snp_data = Channel.empty()
-    classified_data = Channel.empty()
 
-    // Get existing files    
-    existing_bam_data = (params.bam_files) ? fetchBAM(params.bam_files) : Channel.empty()
-    existing_parquet_data = (params.raw_parquets) ? fetchRawParquet(params.raw_parquets) : Channel.empty()
-    existing_called_base_data = (params.called_bases) ? fetchCalledBases(params.called_bases) : Channel.empty()
-
-    tree_file = (params.tree_file) ? Channel.fromPath(params.tree_file) : Channel.empty()
-    alignment_file = (params.alignment_file) ? Channel.fromPath(params.alignment_file) : Channel.empty()
-    split_file = (params.split_file) ? Channel.fromPath(params.split_file) : Channel.empty()
-    group_file = (params.group_file) ? Channel.fromPath(params.group_file) : Channel.empty()
-
-    ///////////////////////////////////////// FETCH GENOME ////////////////////////////////////////////
-    
     if(params.pg_reads){
         genome_info = assembleGenome(params.pg_reads) | first
     }  else if(params.fasta){      
@@ -296,16 +280,22 @@ workflow{
     ///////////////////////////////////// FETCH RAW PARQUETS /////////////////////////////////////////
 
     new_parquet_data = Channel.empty()
+    raw_parquet_data = Channel.empty()
+    called_bases_data = Channel.empty()
+
+    // Get existing files    
+    existing_bam_data = (params.bam_files) ? fetchBAM(params.bam_files) : Channel.empty()
+    existing_parquet_data = (params.raw_parquets) ? fetchRawParquet(params.raw_parquets) : Channel.empty()
+    existing_called_base_data = (params.called_bases) ? fetchCalledBases(params.called_bases) : Channel.empty()
 
     if((!params.joined && !params.filtered) && (params.bam_files || params.map_reads || params.map_sra)){
         
         // Check for new read data to be mapped
         map_read_data = (params.map_reads) ? fetchMapReads(params.map_reads) : Channel.empty()
         sra_read_data = (params.map_sra) ? fetchSRAReads(params.map_sra): Channel.empty()
-        all_read_data = map_read_data.concat(sra_read_data)
         
         // Map reads
-        uncollected_bam_data = all_read_data.combine(genome_info).map{it->tuple(it[0],it[1],it[2],it[5])} | mapReads
+        uncollected_bam_data = map_read_data.concat(sra_read_data).combine(genome_info).map{it->tuple(it[0],it[1],it[2],it[5])} | mapReads
         new_bam_data = (params.local) ?  uncollected_bam_data | collect | flatten | collate(2) : uncollected_bam_data
         
         // Convert to parquet
@@ -319,15 +309,22 @@ workflow{
     new_called_base_data = raw_parquet_data | callBases
     called_bases_data = new_called_base_data.concat(existing_called_base_data) | collect | flatten | collate(2)
 
-
     //////////////////////////////////////// CLASSIFY /////////////////////////////////////////////////
 
-    if(params.classify){
+    if(params.classify && params.snp_dir){
       
         classified_data = genome_info.combine(called_bases_data).map{it->tuple(it[0],it[1],it[3],it[4],snp_directory,snp_id)} | classifySample | collect | flatten | collate(3)
         classified_data | view
         
     } else{
+
+        joined_data = Channel.empty()
+        filtered_data = Channel.empty()
+        snp_data = Channel.empty()
+        tree_file = (params.tree_file) ? Channel.fromPath(params.tree_file) : Channel.empty()
+        alignment_file = (params.alignment_file) ? Channel.fromPath(params.alignment_file) : Channel.empty()
+        split_file = (params.split_file) ? Channel.fromPath(params.split_file) : Channel.empty()
+        group_file = (params.group_file) ? Channel.fromPath(params.group_file) : Channel.empty()
 
     ///////////////////////////////////// JOIN CALLED BASES ///////////////////////////////////////////
     
@@ -346,7 +343,7 @@ workflow{
     //////////////////////////////////////// GET TREE /////////////////////////////////////////////////
 
         if(!params.alignment && !params.snp_dir && !params.split_file && !params.group_file){
-            tree_file = filtered_data.combine(alignment_file) | generateTree | collect | flatten | collate(1) // REMOVE FILTERED
+            tree_file = filtered_data.combine(alignment_file) | generateTree | collect | flatten | collate(1)
         }
 
     //////////////////////////////////////// GET SPLITS ///////////////////////////////////////////////
@@ -363,9 +360,7 @@ workflow{
 
     //////////////////////////////////////// GET SNPS //////////////////////////////////////////////////
 
-        if(params.snp_dir){
-            snp_data = Channel.from(tuple(snp_id,snp_directory))
-        } else if(params.group_file){        
+        if(params.group_file && !params.snp_dir){        
             snp_data = filtered_data.combine(tree_file).combine(group_file).map{it->tuple(it[0],it[1],snp_id,snp_directory,it[2],it[3])} | generateSNPs | collect | flatten | collate(2)
         }
     }
