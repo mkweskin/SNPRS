@@ -299,15 +299,15 @@ workflow{
         new_bam_data = (params.local) ?  uncollected_bam_data | collect | flatten | collate(2) : uncollected_bam_data
         
         // Convert to parquet
-        new_parquet_data = new_bam_data.concat(existing_bam_data).combine(genome_info).map{it->tuple(it[0],it[1],it[4])} | bamToParquet
+        new_parquet_data = existing_bam_data.concat(new_bam_data).combine(genome_info).map{it->tuple(it[0],it[1],it[4])} | bamToParquet
     }
     
-    raw_parquet_data = new_parquet_data.concat(existing_parquet_data) | collect | flatten | collate(2)
+    raw_parquet_data = (params.local) ? existing_parquet_data.concat(new_parquet_data) | collect | flatten | collate(2) : new_parquet_data.concat(existing_parquet_data) 
 
     //////////////////////////////////////// CALL BASES ///////////////////////////////////////////////
 
     new_called_base_data = raw_parquet_data | callBases
-    called_bases_data = new_called_base_data.concat(existing_called_base_data) | collect | flatten | collate(2)
+    called_bases_data = existing_called_base_data.concat(new_called_base_data) | collect | flatten | collate(2)
 
     //////////////////////////////////////// CLASSIFY /////////////////////////////////////////////////
 

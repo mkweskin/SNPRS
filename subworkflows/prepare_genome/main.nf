@@ -4,6 +4,7 @@ nextflow.enable.dsl=2
 kmer = params.kmer as Integer
 cpu = params.cpus as Integer
 sample_cpu = (params.sample_cpus) ? params.sample_cpus as Integer : cpu
+count_cpu = (cpu >= 2) ? 2 : cpu
 
 node = params.nodes as Integer
 ray_cores = cpu * node
@@ -124,7 +125,7 @@ process COUNT_BASES {
 
     tag "Count_${sample_id}"
 
-    cpus sample_cpu
+    cpus count_cpu
 
     input:
     tuple val(sample_id), val(forward_read), val(reverse_read)
@@ -137,8 +138,8 @@ process COUNT_BASES {
     def base_count_file = file("${genome_prep_directory}/Read_Counts.csv")
     
     def stats_cmd = reverse_read 
-    ? "seqkit stats -j $sample_cpu -a -T ${forward_read} ${reverse_read}" 
-    : "seqkit stats -j $sample_cpu -a -T ${forward_read}"
+    ? "seqkit stats -j $count_cpu -a -T ${forward_read} ${reverse_read}" 
+    : "seqkit stats -j $count_cpu -a -T ${forward_read}"
 
     """
     output=\$(${stats_cmd})
