@@ -56,7 +56,7 @@ def get_ingroup_parquet(base_file, group_ids, group_name, temp_directory):
             pl.col("nonzero_values").list.drop_nulls().list.unique().alias("unique_values"),
             pl.col("nonzero_values").list.drop_nulls().list.len().alias("In_Count")
         ])
-        .filter(pl.col("unique_values").list.len() == 1)
+        .filter(pl.col("unique_values").list.len() == 1) # <---- Adjustment point to allow for heterozygous In_Base
         .with_columns([
             pl.col("unique_values").list.first().alias("In_Base")
         ])
@@ -157,13 +157,7 @@ def get_degenerate_outgroup_parquet(ingroup_fixed_parquet,ingroup_id,base_file,g
             pl.col("nonzero_values").list.drop_nulls().list.len().alias("Out_Count"),
             pl.col("nonzero_values")
             .list.drop_nulls()
-            .list.eval(
-                pl.element()
-                .replace_strict(degenerate_map, default=None)
-            )
-            .list.explode()
-            .list.unique()
-            .list.sort()
+            .map_elements(lambda vals: sorted(set(sum((degenerate_map.get(v, []) for v in vals), []))))
             .list.join("")
             .alias("Out_Base"),
         ])

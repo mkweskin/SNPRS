@@ -101,15 +101,20 @@ fi"""
     $delete_cmd &&
 
     layout=\$(vdb-dump -R1 -C READ_LEN -f tab $srr_id | awk '{if(NF>1) print "PE"; else print "SE"}') &&
+    
+    {
+        if [[ "\$layout" == "PE" ]]; then
+            fasterq-dump --split-spot --stdout --threads ${sample_cpu} $srr_id | bbduk.sh int=f in=stdin.fq out=${forward_out} out2=${reverse_out} ref=adapters ktrim=r k=23 mink=11 hdist=1 tbo threads=${sample_cpu} $ow_arg &> $log_file &&
+            echo -n $srr_id,$forward_out,$reverse_out
 
-    if [[ "\$layout" == "PE" ]]; then
-        fasterq-dump --split-spot --stdout --threads ${sample_cpu} $srr_id | bbduk.sh int=f in=stdin.fq out=${forward_out} out2=${reverse_out} ref=adapters ktrim=r k=23 mink=11 hdist=1 tbo threads=${sample_cpu} $ow_arg &> $log_file &&
-        echo -n $srr_id,$forward_out,$reverse_out
+        else
+            fasterq-dump --stdout --threads ${sample_cpu} $srr_id | bbduk.sh in=stdin.fq out=${se_out} ref=adapters ktrim=r k=23 mink=11 hdist=1 threads=${sample_cpu} $ow_arg &> $log_file &&
+            echo -n $srr_id,$se_out,
+        fi
+    } || {
+        echo -n ""
+    }
 
-    else
-        fasterq-dump --stdout --threads ${sample_cpu} $srr_id | bbduk.sh in=stdin.fq out=${se_out} ref=adapters ktrim=r k=23 mink=11 hdist=1 threads=${sample_cpu} $ow_arg &> $log_file &&
-        echo -n $srr_id,$se_out,
-    fi
     """
 }
 

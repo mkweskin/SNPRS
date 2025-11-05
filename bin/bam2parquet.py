@@ -151,9 +151,13 @@ def compute_depth_stats(temp_file):
     q25 = round(depth_df["depth"].quantile(0.25, "nearest"), 2)
     q50 = round(depth_df["depth"].quantile(0.5, "nearest"), 2)
     q75 = round(depth_df["depth"].quantile(0.75, "nearest"), 2)
+
     mean_depth = round(depth_df["depth"].mean(), 2)
     min_depth = int(depth_df["depth"].min())
     max_depth = int(depth_df["depth"].max())
+
+    iqr = q75 - q25
+    iqr_threshold = q75 + (3 * iqr)
 
     stats = {
         "covered": str(covered_sites),
@@ -162,7 +166,8 @@ def compute_depth_stats(temp_file):
         "max": str(max_depth),
         "q25": str(q25),
         "q50": str(q50),
-        "q75": str(q75)
+        "q75": str(q75),
+        "depth_threshold":str(iqr_threshold)
     }
 
     return stats
@@ -326,8 +331,13 @@ if line_count == 0:
 # region 04: Summarize and save 
 
 depth_stats = compute_depth_stats(temp_file)
+depth_threshold = int(depth_stats.get("depth_threshold", 0))
+
+### COULD FILTER HIGH DEPTH HERE ###
+
 percent_covered = f"{int(depth_stats['covered'])/int(total_sites):.2f}"
 freq_stats = compute_freq_stats(temp_file)
+
 
 metadata = {
     "sample_id": sample_name,

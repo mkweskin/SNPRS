@@ -180,7 +180,7 @@ process SUBSET_READS {
 
     tag "Subset_${sample_id}"
 
-    cpus sample_cpu
+    cpus 1
 
     input:
     tuple val(sample_id), val(subsample_id),val(forward_read),val(reverse_read),val(allocated)

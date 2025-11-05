@@ -99,7 +99,7 @@ if(check_nonos()){
 
             test_dir = file(params.filtered)
             validate_dir(test_dir,"filtered")
-            snprs_directory = test_dir.getParent().getParent()
+            snprs_directory = test_dir.getParent().getParent().getParent()
             new_dir = false
 
         } else if(params.snp_dir){

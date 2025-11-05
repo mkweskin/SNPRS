@@ -17,9 +17,12 @@ workflow callBases{
 
     main:
 
-    pre_base_call_data = CALL_BASES(raw_parquet_data) | splitCsv | collect | flatten | collate(2)
-
-    base_call_data = pre_base_call_data | checkStop | collect | flatten | collate(2)
+    if(!params.ploidy){
+        error "Cannot call bases without --ploidy set"
+    } else{
+        pre_base_call_data = CALL_BASES(raw_parquet_data) | splitCsv | collect | flatten | collate(2)
+        base_call_data = pre_base_call_data | checkStop | collect | flatten | collate(2)
+    }
 }
 
 workflow checkStop{
