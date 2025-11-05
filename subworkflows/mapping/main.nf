@@ -188,6 +188,15 @@ process MAP_READS{
     def mate_file = file("${bam_dir}/${sample_id}_mate.bam")
     def dup_file = file("${bam_dir}/${sample_id}_dup.bam")
 
+    def slow_arg
+    if(params.vslow){
+        slow_arg = "vslow=t"
+    } else if(params.slow){
+        slow_arg = "slow=t"
+    } else{
+        slow_arg = ""
+    }
+
     def delete_cmd = (params.overwrite)
     ? "rm -f $bam_file $raw_bam_file $sort_file $mate_file $dup_file" 
     : """
@@ -205,7 +214,7 @@ TOTAL_MEM_MB=\$(free -m | awk '/^Mem:/{print \$2}')
 XMX_MB=\$((TOTAL_MEM_MB * 70 / 100))
 XMX_ARG="-Xmx\${XMX_MB}m"
 
-bbmap.sh threads=${sample_cpu} in=${forward} in2=${reverse} ambiguous=toss mappedonly=t out=${raw_bam_file} \$XMX_ARG && 
+bbmap.sh $slow_arg threads=${sample_cpu} in=${forward} in2=${reverse} ambiguous=toss mappedonly=t out=${raw_bam_file} \$XMX_ARG && 
 samtools sort -n -@ ${sample_cpu} -o ${sort_file} ${raw_bam_file} && rm -f ${raw_bam_file} && 
 samtools fixmate -@ ${sample_cpu} -m ${sort_file} ${mate_file} && rm -f ${sort_file} &&
 samtools sort -@ ${sample_cpu} -o ${sort_file} ${mate_file} && rm -f ${mate_file} &&
@@ -216,7 +225,7 @@ samtools index -@ ${sample_cpu} ${bam_file}"""
 TOTAL_MEM_MB=\$(free -m | awk '/^Mem:/{print \$2}')
 XMX_MB=\$((TOTAL_MEM_MB * 70 / 100))
 XMX_ARG="-Xmx\${XMX_MB}m"
-bbmap.sh threads=${sample_cpu} in=${forward} ambiguous=toss mappedonly=t out=${raw_bam_file} \$XMX_ARG && 
+bbmap.sh $slow_arg threads=${sample_cpu} in=${forward} ambiguous=toss mappedonly=t out=${raw_bam_file} \$XMX_ARG && 
 samtools sort -@ ${sample_cpu} -o ${bam_file} ${raw_bam_file} && rm -f ${raw_bam_file} && samtools index -@ ${sample_cpu} ${bam_file}"""
     } else{
         mapping_cmd = reverse ?
@@ -224,7 +233,7 @@ samtools sort -@ ${sample_cpu} -o ${bam_file} ${raw_bam_file} && rm -f ${raw_bam
 TOTAL_MEM_MB=\$(free -m | awk '/^Mem:/{print \$2}')
 XMX_MB=\$((TOTAL_MEM_MB * 70 / 100))
 XMX_ARG="-Xmx\${XMX_MB}m"
-bbmap.sh threads=${sample_cpu} in=${forward} in2=${reverse} ambiguous=toss mappedonly=t out=stdout.bam \$XMX_ARG | \
+bbmap.sh $slow_arg threads=${sample_cpu} in=${forward} in2=${reverse} ambiguous=toss mappedonly=t out=stdout.bam \$XMX_ARG | \
 samtools sort -n -@ ${sample_cpu} -T ${sample_id}_tmp - | \
 samtools fixmate -@ ${sample_cpu} -m - - | \
 samtools sort -@ ${sample_cpu} -T ${sample_id}_tmp - | \
@@ -234,7 +243,7 @@ samtools sort -@ ${sample_cpu} -o ${bam_file} - && samtools index -@ ${sample_cp
 TOTAL_MEM_MB=\$(free -m | awk '/^Mem:/{print \$2}')
 XMX_MB=\$((TOTAL_MEM_MB * 70 / 100))
 XMX_ARG="-Xmx\${XMX_MB}m"
-bbmap.sh threads=${sample_cpu} in=${forward} ambiguous=toss mappedonly=t out=stdout.bam \$XMX_ARG | \
+bbmap.sh $slow_arg threads=${sample_cpu} in=${forward} ambiguous=toss mappedonly=t out=stdout.bam \$XMX_ARG | \
 samtools sort -@ ${sample_cpu} -o ${bam_file} - && samtools index -@ ${sample_cpu} ${bam_file}"""
     }
 
