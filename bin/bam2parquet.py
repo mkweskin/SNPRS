@@ -331,7 +331,7 @@ if line_count == 0:
 # region 04: Summarize and save 
 
 depth_stats = compute_depth_stats(temp_file)
-depth_threshold = int(depth_stats.get("depth_threshold", 0))
+depth_threshold = int(float(depth_stats.get("depth_threshold", 0)))
 
 ### COULD FILTER HIGH DEPTH HERE ###
 

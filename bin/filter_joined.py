@@ -38,7 +38,7 @@ def parse_args():
 
     parser.add_argument("--het", dest="include_hets", action="store_true",help="Include positions where any sample has a heterozygous base call [Default: FALSE]")
     parser.add_argument("--invalid", dest="include_invalid", action="store_true",help="Include positions where any sample has an invalid base call [Default: FALSE]")
-    parser.add_argument("--missing", dest="missing", type=float, default=None,help="If 0 or >= 1, max number of samples allowed with missing data. If between 0 -1, the minimum proportion of samples with data required. [Default: Estimate from data]")
+    parser.add_argument("--missing", dest="missing", type=float, default=None,help="If -1, no filter. If 0 or >= 1, max number of samples allowed with missing data. If between 0 -1, the minimum proportion of samples with data required. [Default: Estimate from data]")
 
     return parser.parse_args()
 
@@ -331,7 +331,11 @@ include_invalid = args.include_invalid
 if not args.missing:
     missing_mode = "estimate"
     max_missing = np.nan
+elif int(args.missing) == =1:
+    missing_mode = "all"
+    max_missing = len(sample_ids) -2
 elif int(args.missing) == 0:
+    missing_mode = "none"
     max_missing = 0
 elif float(args.missing) < 1:
     missing_mode = "prop"

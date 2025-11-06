@@ -17,12 +17,8 @@ workflow callBases{
 
     main:
 
-    if(!params.ploidy){
-        error "Cannot call bases without --ploidy set"
-    } else{
-        pre_base_call_data = CALL_BASES(raw_parquet_data) | splitCsv | collect | flatten | collate(2)
-        base_call_data = pre_base_call_data | checkStop | collect | flatten | collate(2)
-    }
+    pre_base_call_data = CALL_BASES(raw_parquet_data) | splitCsv | collect | flatten | collate(2)
+    base_call_data = pre_base_call_data | checkStop | collect | flatten | collate(2)
 }
 
 workflow checkStop{
@@ -66,7 +62,13 @@ fi"""
     def min_depth = params.min_depth as Integer
     def allele_cov = params.min_allele as Integer
     def min_freq = params.min_freq as Float
-    def ploidy = params.ploidy as Integer
+    def ploidy
+    
+    if(!params.ploidy){
+        error "Cannot call bases without --ploidy set"
+    } else{
+        ploidy = params.ploidy as Integer
+    } 
 
     """
     mkdir -p ${output_directory} &&
