@@ -18,42 +18,54 @@ def save_sample_parquet(raw_sample_parquet, called_base_parquet, scaffold_parque
 
     lazy_scaffold = pl.scan_parquet(scaffold_parquet)
     lazy_called = pl.scan_parquet(called_base_parquet).filter(pl.col("type").is_in(valid_sites))
+    called_meta = pq.ParquetFile(called_base_parquet).schema_arrow.metadata
+
+    min_allele_cov = called_meta.get("min_allele_coverage")
+    min_allele_frequency = called_meta.get("min_allele_frequency")
+    min_depth = called_meta.get("min_read_coverage")
 
     # Sites in scaffold but not called
     lazy_called_sites = lazy_called.select(['contig_index','contig_position']).unique()
     missing_rows = lazy_scaffold.join(lazy_called_sites, on=['contig_index','contig_position'], how='anti')
 
     if os.path.exists(raw_sample_parquet):
+        raw = pl.scan_parquet(raw_sample_parquet)
 
-        # Valid coverage (exclude N and insertions)
-        lazy_sample = (
-            pl.scan_parquet(raw_sample_parquet)
-            .select(['contig_index','contig_position','base'])
-            .filter((pl.col("base") != "N") & ~pl.col("base").str.starts_with("+"))
-            .select(['contig_index','contig_position'])
-            .unique()
+        valid_mask = (
+            (pl.col("base") != "N")
+            & (~pl.col("base").str.starts_with("+"))
+            & (pl.col("depth") >= min_depth)
+            & (pl.col("frequency") >= min_allele_frequency)
+            & ((pl.col("depth") * pl.col("frequency")).round(0).cast(pl.Int64) >= min_allele_cov)
         )
 
-        # Uncovered (?): absent in raw
+        lazy_sample_all = raw.select(['contig_index','contig_position']).unique()
+        lazy_sample_valid = raw.filter(valid_mask).select(['contig_index','contig_position']).unique()
+
         uncovered_rows = (
-            lazy_scaffold
-            .join(lazy_sample, on=['contig_index','contig_position'], how='anti')
-            .with_columns([pl.lit("?").alias(sample_id),pl.lit(5).alias("type")])
+            missing_rows
+            .join(lazy_sample_valid, on=['contig_index','contig_position'], how='anti')
+            .with_columns([pl.lit("?").alias(sample_id), pl.lit(5).alias("type")])
         )
 
-        # Filtered (N): absent in called but present in raw
         filtered_rows = (
             missing_rows
             .join(uncovered_rows, on=['contig_index','contig_position'], how='anti')
-            .with_columns([pl.lit("N").alias(sample_id),pl.lit(6).alias("type")])
+            .join(lazy_sample_all, on=['contig_index','contig_position'], how='inner')
+            .with_columns([pl.lit("N").alias(sample_id), pl.lit(6).alias("type")])
         )
 
-        missing_df = pl.concat([uncovered_rows, filtered_rows]).with_columns(pl.col("type").cast(pl.Int32))
+        missing_df = (
+            pl.concat([uncovered_rows, filtered_rows])
+            .with_columns(pl.col("type").cast(pl.Int32))
+        )
 
     else:
-        # No raw parquet so all missing are considered filtered
-        missing_df = missing_rows.with_columns([pl.lit("N").alias(sample_id),pl.lit(6).alias("type")]).with_columns(pl.col("type").cast(pl.Int32))
-
+        missing_df = (
+            missing_rows
+            .with_columns([pl.lit("N").alias(sample_id), pl.lit(6).alias("type")])
+            .with_columns(pl.col("type").cast(pl.Int32))
+        )
 
     # Called bases
     called_rows = (

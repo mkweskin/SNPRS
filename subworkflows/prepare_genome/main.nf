@@ -38,7 +38,7 @@ workflow assembleGenome{
     input_pangenome_reads = FETCH_PG_READS(pg_read_data) | splitCsv
 
     // Get base counts
-    base_count_file = input_pangenome_reads.map{it-> tuple(it[0],it[3],it[4])} | COUNT_BASES  | collect | map { it[0] }
+    base_count_file = (params.manual_counts) ? Channel.fromPath(params.manual_counts) | collect | map { it[0] }: input_pangenome_reads.map{it-> tuple(it[0],it[3],it[4])} | COUNT_BASES  | collect | map { it[0] }
 
     // Subset or link reads for pangenome assembly
     subset_guide = CALCULATE_SUBSETS(base_count_file) | splitCsv
@@ -170,9 +170,11 @@ process CALCULATE_SUBSETS{
     def size = params.size as Integer
     def out_prop = params.out_prop as Float
     def coverage = params.coverage as Integer
+
+    def data_args = (params.manual_counts) ? "-m ${file(params.manual_counts)}" : "-b ${base_count_file} -g ${group_file}"
     
     """
-    python ${calculate_sub_script} -b ${base_count_file} -g ${group_file} -s ${size} -c ${coverage} -o ${subset_directory} -p ${out_prop}
+    python ${calculate_sub_script} $data_args -s ${size} -c ${coverage} -o ${subset_directory} -p ${out_prop}
     """
 }
 

@@ -281,8 +281,9 @@ def balance_bases(request_df):
 
 # Parse arguments
 parser = argparse.ArgumentParser()
-parser.add_argument('-b', '--base_counts', type=str, required=True, help="Base count data in CSV (Sample_ID,Read_Count,Base_Count,Forward_Read,Reverse_Read)")
-parser.add_argument('-g', '--group_file', type=str, required=True, help="Group data in CSV (Sample_ID,Group_0,Group_1,Forward_Read,Reverse_Read)")
+parser.add_argument('-b', '--base_counts', type=str, default=None, help="Base count data in CSV (Sample_ID,Read_Count,Base_Count,Forward_Read,Reverse_Read)")
+parser.add_argument('-g', '--group_file', type=str, default=None, help="Group data in CSV (Sample_ID,Group_0,Group_1,Forward_Read,Reverse_Read)")
+parser.add_argument('-m', '--manual_counts', type=str, default=None, help="Group data in CSV (Sample_ID,Group_0,Group_1,Base_Count,Forward_Read,Reverse_Read)")
 parser.add_argument('-o', '--output', type=str, required=True, help="Output directory for subset reads")
 parser.add_argument('-s', '--genomesize', type=int, required=True, help="Genome size estimate in bp")
 parser.add_argument('-c', '--coverage', type=int, default=10, help="Desired coverage")
@@ -292,19 +293,43 @@ args = parser.parse_args()
 # Create log file
 log_dir = os.path.dirname(args.output)
 log_file = f"{log_dir}/Subset_Log.txt"
+
+if args.manual_counts:
+    data_string = f"\t- Manual Count Information: {os.path.abspath(args.manual_counts)}\n"
+else:
+    data_string = f"\t- Base Count Information: {os.path.abspath(args.base_counts)}\n\t- Group Information: {os.path.abspath(args.group_file)}\n"
+
 with open(log_file, 'w') as log:
     log.write("SNPRS Read Subsetter Log\n")
     log.write("-------------------------------------------------------\n\n")
     log.write(f"\t- Genome size estimate: {args.genomesize} bp\n")
     log.write(f"\t- Desired coverage: {args.coverage}X\n")
-    log.write(f"\t- Base Count Information: {os.path.abspath(args.base_counts)}\n")
+    log.write(data_string)
     log.write(f"\t- Output directory: {os.path.abspath(args.output)}\n")
     log.write("\n-------------------------------------------------------\n\n")
         
-# Read in base count information
+if not (args.manual_counts or (args.base_counts and args.group_file)):
+    sys.exit("Must provide --manual_counts or --base_counts/--group_file")
 
-base_count_df = pd.read_csv(args.base_counts,names=['Sample_ID','Read_Count','Base_Count','Forward','Reverse'])
-group_df = pd.read_csv(args.group_file,names=['Sample_ID','Group_0','Group_1','Forward','Reverse'])
+if args.manual_counts:
+    path = args.manual_counts
+    with open(path) as f:
+        first_line = f.readline().strip()
+    expected_cols = ['Sample_ID', 'Group_0', 'Group_1', 'Base_Count', 'Forward', 'Reverse']
+    if all(col in first_line for col in ['Sample_ID', 'Group_0']):
+        df = pd.read_csv(path)
+    else:
+        sys.exit("Manual counts provided by --manual_counts must have the header: 'Sample_ID', 'Group_0', 'Group_1', 'Base_Count', 'Forward', 'Reverse'")
+
+    base_count_df = df[['Sample_ID', 'Base_Count', 'Forward', 'Reverse']].copy()
+    base_count_df['Read_Count'] = np.nan
+    base_count_df = base_count_df[['Sample_ID', 'Read_Count', 'Base_Count', 'Forward', 'Reverse']]
+    group_df = df[['Sample_ID', 'Group_0', 'Group_1', 'Forward', 'Reverse']].copy()
+
+else:
+    base_count_df = pd.read_csv(args.base_counts,names=['Sample_ID', 'Read_Count', 'Base_Count', 'Forward', 'Reverse'])
+    group_df = pd.read_csv(args.group_file,names=['Sample_ID', 'Group_0', 'Group_1', 'Forward', 'Reverse'])
+
 
 for col in ['Forward','Reverse']:
     base_count_df[col] = base_count_df[col].replace({np.nan: None})

@@ -301,6 +301,7 @@ os.mkdir(temp_directory)
 
 # Get sample count + IDs
 sample_ids = pl.scan_parquet(base_file).collect_schema().names()
+sample_count = len(sample_ids)
 
 # endregion
 
@@ -331,9 +332,9 @@ include_invalid = args.include_invalid
 if not args.missing:
     missing_mode = "estimate"
     max_missing = np.nan
-elif int(args.missing) == =1:
+elif int(args.missing) == -1:
     missing_mode = "all"
-    max_missing = len(sample_ids) -2
+    max_missing = sample_count -2
 elif int(args.missing) == 0:
     missing_mode = "none"
     max_missing = 0

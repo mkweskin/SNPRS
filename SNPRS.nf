@@ -57,6 +57,8 @@ def check_nonos(){
         error "Cannot run in classifier mode (--classify) without data (--map_reads/--map_sra/--bam_files/--raw_parquets/--called_bases)"
     } else if(params.classify && params.pg_reads){
         error "Cannot run in classifier mode (--classify) and assemble a pangenome (--pg_reads) in a single run"
+    } else if(params.manual_counts && !file(params.manual_counts).exists()){
+        error "Count file provided by --manual_counts does not exist"
     }
 
     return true

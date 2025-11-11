@@ -140,8 +140,12 @@ def get_base_freqs(sample_bases,ref_base):
 def compute_depth_stats(temp_file):
 
     depth_df = (
-        pl.scan_csv(temp_file,separator="\t",has_header=True)
-        .select(["contig_id", "contig_position", "depth"])
+        pl.scan_csv(temp_file, separator="\t", has_header=True)
+        .select([
+            "contig_id",
+            "contig_position",
+            pl.col("depth").cast(pl.Int64)
+        ])
         .unique(subset=["contig_id", "contig_position"])
         .collect()
     )
