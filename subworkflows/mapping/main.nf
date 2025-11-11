@@ -183,10 +183,7 @@ process MAP_READS{
     def bam_dir = file ("${mapping_directory}/BAMs")
     def bam_file = file("${bam_dir}/${sample_id}.bam")
 
-    def raw_bam_file = file("${bam_dir}/${sample_id}_raw.bam")
-    def sort_file = file("${bam_dir}/${sample_id}_sort.bam")
-    def mate_file = file("${bam_dir}/${sample_id}_mate.bam")
-    def dup_file = file("${bam_dir}/${sample_id}_dup.bam")
+    def raw_sam_file = file("${bam_dir}/${sample_id}_raw.sam")
 
     def slow_arg
     if(params.vslow){
@@ -200,52 +197,27 @@ process MAP_READS{
     def delete_cmd = (params.overwrite)
     ? "rm -f $bam_file $raw_bam_file $sort_file $mate_file $dup_file" 
     : """
-if [ -e "$bam_file" ] || [ -e "$raw_bam_file" ] || [ -e "$sort_file" ] || [ -e "$mate_file" ] || [ -e "$dup_file" ]; then
+if [ -e "$bam_file" ] || [ -e "$raw_sam_file" ] ; then
     echo "❌ Error: BAM files or intermediates already exist! Use --overwrite to replace." >&2
     exit 1
 fi"""    
 
-    def mapping_cmd
 
-    if(params.mem_mode){
-        mapping_cmd = reverse
-        ? """
-TOTAL_MEM_MB=\$(free -m | awk '/^Mem:/{print \$2}')
-XMX_MB=\$((TOTAL_MEM_MB * 70 / 100))
-XMX_ARG="-Xmx\${XMX_MB}m"
-
-bbmap.sh $slow_arg threads=${sample_cpu} in=${forward} in2=${reverse} ambiguous=toss mappedonly=t out=${raw_bam_file} \$XMX_ARG && 
-samtools sort -n -@ ${sample_cpu} -o ${sort_file} ${raw_bam_file} && rm -f ${raw_bam_file} && 
-samtools fixmate -@ ${sample_cpu} -m ${sort_file} ${mate_file} && rm -f ${sort_file} &&
-samtools sort -@ ${sample_cpu} -o ${sort_file} ${mate_file} && rm -f ${mate_file} &&
-samtools markdup -@ ${sample_cpu} ${sort_file} ${dup_file} && rm -f ${sort_file} &&
-samtools sort -@ ${sample_cpu} -o ${bam_file} ${dup_file} && rm -f ${dup_file} &&
-samtools index -@ ${sample_cpu} ${bam_file}"""
-        : """
-TOTAL_MEM_MB=\$(free -m | awk '/^Mem:/{print \$2}')
-XMX_MB=\$((TOTAL_MEM_MB * 70 / 100))
-XMX_ARG="-Xmx\${XMX_MB}m"
-bbmap.sh $slow_arg threads=${sample_cpu} in=${forward} ambiguous=toss mappedonly=t out=${raw_bam_file} \$XMX_ARG && 
-samtools sort -@ ${sample_cpu} -o ${bam_file} ${raw_bam_file} && rm -f ${raw_bam_file} && samtools index -@ ${sample_cpu} ${bam_file}"""
-    } else{
-        mapping_cmd = reverse ?
+    def mapping_cmd = (reverse) ?
     """
 TOTAL_MEM_MB=\$(free -m | awk '/^Mem:/{print \$2}')
 XMX_MB=\$((TOTAL_MEM_MB * 70 / 100))
 XMX_ARG="-Xmx\${XMX_MB}m"
-bbmap.sh $slow_arg threads=${sample_cpu} in=${forward} in2=${reverse} ambiguous=toss mappedonly=t out=stdout.bam \$XMX_ARG | \
-samtools sort -n -@ ${sample_cpu} -T ${sample_id}_tmp - | \
-samtools fixmate -@ ${sample_cpu} -m - - | \
-samtools sort -@ ${sample_cpu} -T ${sample_id}_tmp - | \
-samtools markdup -@ ${sample_cpu} - - | \
-samtools sort -@ ${sample_cpu} -o ${bam_file} - && samtools index -@ ${sample_cpu} ${bam_file}""" :
+bbwrap.sh $slow_arg threads=${sample_cpu} in=${forward},${reverse} ambiguous=toss mappedonly=t maxindel=99 strictmaxindel=t append=t out=${raw_sam_file} \$XMX_ARG &&
+samtools view -Su -@ ${sample_cpu} -F 4 ${raw_sam_file} | \
+samtools sort -@ ${sample_cpu} - -o ${bam_file} && samtools index -@ ${sample_cpu} ${bam_file} && rm -f ${raw_sam_file}""" 
+:
     """
 TOTAL_MEM_MB=\$(free -m | awk '/^Mem:/{print \$2}')
 XMX_MB=\$((TOTAL_MEM_MB * 70 / 100))
 XMX_ARG="-Xmx\${XMX_MB}m"
-bbmap.sh $slow_arg threads=${sample_cpu} in=${forward} ambiguous=toss mappedonly=t out=stdout.bam \$XMX_ARG | \
+bbmap.sh $slow_arg threads=${sample_cpu} in=${forward} ambiguous=toss mappedonly=t maxindel=99 strictmaxindel=t out=stdout.bam \$XMX_ARG | \
 samtools sort -@ ${sample_cpu} -o ${bam_file} - && samtools index -@ ${sample_cpu} ${bam_file}"""
-    }
 
     """
     cd $mapping_directory &&
@@ -255,6 +227,7 @@ samtools sort -@ ${sample_cpu} -o ${bam_file} - && samtools index -@ ${sample_cp
     echo -n "${sample_id},${bam_file}"
     """
 }
+
 
 ///// Fetch existing BAM files /////
 
