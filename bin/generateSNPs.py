@@ -32,7 +32,7 @@ def flatten_tips(df):
         if tip.strip()
     )
 
-def get_ingroup_parquet(base_file, group_ids, group_name, temp_directory):
+def get_ingroup_parquet(base_file, group_ids, group_name, temp_directory,terminal_clades):
 
     ingroup_parquet = os.path.join(temp_directory, f"{group_name}_Ingroup.parquet")
     if os.path.exists(ingroup_parquet):
@@ -40,6 +40,13 @@ def get_ingroup_parquet(base_file, group_ids, group_name, temp_directory):
 
     group_ids = list(group_ids)
     group_name = str(group_name)
+
+    matching_terminals = [
+        clade_id
+        for clade_id, tips in terminal_clades.items()
+        if tips.issubset(group_ids)
+    ]
+
 
     lazy_base = pl.scan_parquet(base_file).select(group_ids)
     row_count = pq.ParquetFile(base_file).metadata.num_rows
@@ -60,6 +67,19 @@ def get_ingroup_parquet(base_file, group_ids, group_name, temp_directory):
         .with_columns([
             pl.col("unique_values").list.first().alias("In_Base")
         ])
+    )
+    
+    if matching_terminals:
+        for clade_id in matching_terminals:
+            clade_tips = terminal_clades[clade_id]
+            filtered_base_rows = filtered_base_rows.filter(
+                pl.any_horizontal(
+                    pl.col(list(clade_tips)).is_in(["A", "C", "T", "G", "-"])
+                )
+            )
+
+    filtered_base_rows = (
+        filtered_base_rows
         .select(["row_nr", "In_Base", "In_Count"])
     )
 
@@ -70,8 +90,8 @@ def get_ingroup_parquet(base_file, group_ids, group_name, temp_directory):
     filtered_base_rows.collect(streaming=True).write_parquet(ingroup_parquet)
     return ingroup_parquet,output_rows
 
-def get_degenerate_outgroup_parquet(ingroup_fixed_parquet,ingroup_id,base_file,group_ids,group_name,temp_directory,higher_level_snp_parquet=None):
-    
+def get_degenerate_outgroup_parquet(ingroup_fixed_parquet,ingroup_id,base_file,group_ids,group_name,temp_directory,terminal_clades,higher_level_snp_parquet=None):
+        
     degenerate_map = {
     "A": ["A"],
     "C": ["C"],
@@ -93,6 +113,7 @@ def get_degenerate_outgroup_parquet(ingroup_fixed_parquet,ingroup_id,base_file,g
     degenerate_map.update({k.lower(): v + ["-"] for k, v in degenerate_map.items() if k != "-"})
 
     fixed_bases = {'A','C','T','G','-','?'}
+    all_bases = degenerate_map.keys()
 
     outgroup_parquet = os.path.join(temp_directory, f"{ingroup_id}_{group_name}_Outgroup.parquet")
 
@@ -101,6 +122,12 @@ def get_degenerate_outgroup_parquet(ingroup_fixed_parquet,ingroup_id,base_file,g
 
     group_ids = list(group_ids)
     group_name = str(group_name)
+
+    matching_terminals = [
+        clade_id
+        for clade_id, tips in terminal_clades.items()
+        if tips.issubset(group_ids)
+    ]
 
     lazy_ingroup_rows = pl.scan_parquet(ingroup_fixed_parquet).select(['row_nr'])
 
@@ -113,6 +140,26 @@ def get_degenerate_outgroup_parquet(ingroup_fixed_parquet,ingroup_id,base_file,g
         .join(lazy_ingroup_rows, on="row_nr", how="inner")
         .filter(~pl.any_horizontal(pl.col(group_ids) == "N"))
     )
+
+    if matching_terminals:
+        ingroup_base_rows = ingroup_base_rows.with_columns(
+            pl.lit(len(matching_terminals)).alias("Nested_Groups")
+        )
+
+        outgroup_exprs = [
+            pl.any_horizontal(pl.col(list(terminal_clades[clade_id])).is_in(list(all_bases)))
+            for clade_id in matching_terminals
+        ]
+
+        ingroup_base_rows = ingroup_base_rows.with_columns(
+            pl.sum_horizontal([expr.cast(pl.Int8) for expr in outgroup_exprs]).alias("Out_Groups")
+        )
+
+    else:
+        ingroup_base_rows = ingroup_base_rows.with_columns([
+            pl.lit(0).alias("Nested_Groups"),
+            pl.lit(0).alias("Out_Groups"),
+        ])
 
     if higher_level_snp_parquet:
         high_frames = [pl.scan_parquet(parquet).select("row_nr") for parquet in higher_level_snp_parquet]
@@ -142,7 +189,7 @@ def get_degenerate_outgroup_parquet(ingroup_fixed_parquet,ingroup_id,base_file,g
             pl.col("nonzero_values").list.drop_nulls().list.unique().list.join("").alias("Out_Base"),
         ])
         .filter(pl.col("Out_Count") > 0)
-        .select(["row_nr", "Out_Base", "Out_Count"])
+        .select(["row_nr", "Out_Base", "Out_Count","Nested_Groups","Out_Groups"])
     )
 
     degenerate_outgroup_rows = (
@@ -162,7 +209,7 @@ def get_degenerate_outgroup_parquet(ingroup_fixed_parquet,ingroup_id,base_file,g
             .alias("Out_Base"),
         ])
         .filter(pl.col("Out_Count") > 0)
-        .select(["row_nr", "Out_Base", "Out_Count"])
+        .select(["row_nr", "Out_Base", "Out_Count","Nested_Groups","Out_Groups"])
     )
 
     simple_row_count = simple_outgroup_rows.select(pl.len()).collect().item()
@@ -255,7 +302,7 @@ def compileSNPs(non_zero_comparisons, snp_id,output_directory, temp_directory,ba
                     pl.lit(outgroup).alias("Outgroup"),
                     pl.lit("").alias("Out_Base"),
                     pl.col("In_Count").cast(pl.Int32).alias("Out_Count")])
-                .select(['row_nr','Ingroup','Outgroup','In_Base','Out_Base','In_Count','Out_Count'])
+                .select(['row_nr','Ingroup','Outgroup','In_Base','Out_Base','In_Count','Out_Count',"Nested_Groups","Out_Groups"])
             ) 
         else:
 
@@ -265,7 +312,7 @@ def compileSNPs(non_zero_comparisons, snp_id,output_directory, temp_directory,ba
                     pl.lit(ingroup).alias("Ingroup"),
                     pl.lit(outgroup).alias("Outgroup"),
                     pl.col("Out_Count").cast(pl.Int32).alias("Out_Count")])
-                .select(['row_nr','Ingroup','Outgroup','In_Base','Out_Base','In_Count','Out_Count'])
+                .select(['row_nr','Ingroup','Outgroup','In_Base','Out_Base','In_Count','Out_Count',"Nested_Groups","Out_Groups"])
             )
 
         lazy_list.append(lazy_pq)
@@ -282,7 +329,7 @@ def compileSNPs(non_zero_comparisons, snp_id,output_directory, temp_directory,ba
         raise ValueError(f"No SNPs could be processed..")
     (
         combined_lazy
-        .select(['contig_index','contig_position','Ingroup','Outgroup','In_Base','Out_Base','In_Count','Out_Count'])
+        .select(['contig_index','contig_position','Ingroup','Outgroup','In_Base','Out_Base','In_Count','Out_Count',"Nested_Groups","Out_Groups"])
         .collect(streaming=True)
         .write_parquet(output_file,compression="snappy")
     )
@@ -331,8 +378,23 @@ if __name__ == "__main__":
     if missing:
         raise ValueError(f"Missing columns in input: {', '.join(missing)}")
     group_tips = flatten_tips(group_df)
-    assert group_tips == tree_tips, "Group taxa do not match tree taxa"
 
+    # Get terminal sets
+    terminal_rows = group_df.loc[group_df["Clade_Type"] == "Terminal"].copy()
+    terminal_clades = {row["Clade_ID"]: set(row["Clade_Tips"].split(";")) for row in terminal_rows.to_dict(orient="records")}
+
+    # Compare taxa between tree and group file
+    missing_in_group = tree_tips - group_tips
+    missing_in_tree = group_tips - tree_tips
+
+    assert not missing_in_group and not missing_in_tree, (
+        f"\n❌ Group taxa do not match tree taxa:\n"
+        f"  • Missing in group file ({len(missing_in_group)}): {sorted(missing_in_group)}\n"
+        f"  • Missing in tree file ({len(missing_in_tree)}): {sorted(missing_in_tree)}\n"
+        f"\nTree taxa ({len(tree_tips)} total): {sorted(tree_tips)}\n"
+        f"Group taxa ({len(group_tips)} total): {sorted(group_tips)}"
+    )
+    
     duplicates = group_df["Clade_ID"][group_df["Clade_ID"].duplicated()]
     assert duplicates.empty, f"Duplicate Clade_IDs found: {duplicates.tolist()}"
 
@@ -381,7 +443,7 @@ if __name__ == "__main__":
     # region 02: Process outgroup
     all_comparisons = {}
 
-    ingroup_fixed_parquet, ingroup_fixed_sites = get_ingroup_parquet(base_parquet, ingroup_ids, ingroup_id, temp_directory)
+    ingroup_fixed_parquet, ingroup_fixed_sites = get_ingroup_parquet(base_parquet, ingroup_ids, ingroup_id, temp_directory,terminal_clades)
 
     if ingroup_fixed_sites > 0:
         
@@ -393,7 +455,7 @@ if __name__ == "__main__":
 
             assert (set(ingroup_ids) | set(outgroup_ids)) == tree_tips, "Ingroup/Outgroup do not add up to all tips."
 
-            outgroup_degen_parquet, outgroup_count = get_degenerate_outgroup_parquet(ingroup_fixed_parquet, ingroup_id, base_parquet, outgroup_ids, "Outgroup", temp_directory)
+            outgroup_degen_parquet, outgroup_count = get_degenerate_outgroup_parquet(ingroup_fixed_parquet, ingroup_id, base_parquet, outgroup_ids, "Outgroup",temp_directory,terminal_clades)
 
             if outgroup_count > 0:
                 ingroup_snp_parquet, ingroup_snp_count = get_ingroup_snps(ingroup_fixed_parquet, outgroup_degen_parquet, ingroup_id, "Outgroup", temp_directory)
@@ -424,14 +486,13 @@ if __name__ == "__main__":
     clade_ids = clades.keys()
     clade_ids_small = sorted(clade_ids, key=lambda c: len(clades[c]))
     clade_ids_large = sorted(clade_ids, key=lambda c: len(clades[c]), reverse=True)
-
+   
     for clade in clade_ids_small:
         
-
         ingroup_snps = []
 
         clade_taxa = set(clades[clade])
-        primary_ingroup_fixed_parquet,primary_fixed_count = get_ingroup_parquet(base_parquet, clade_taxa, clade, temp_directory)
+        primary_ingroup_fixed_parquet,primary_fixed_count = get_ingroup_parquet(base_parquet, clade_taxa, clade, temp_directory,terminal_clades)
 
         if primary_fixed_count == 0:
             all_comparisons[(clade, "NO_FIXED_SITES")] = (0, 0, 0)
@@ -443,7 +504,7 @@ if __name__ == "__main__":
 
             if len(outgroup_taxa) > 0:
                 
-                outgroup_degen_parquet,outgroup_count = get_degenerate_outgroup_parquet(primary_ingroup_fixed_parquet, clade, base_parquet,outgroup_taxa, ingroup_id, temp_directory)
+                outgroup_degen_parquet,outgroup_count = get_degenerate_outgroup_parquet(primary_ingroup_fixed_parquet, clade, base_parquet,outgroup_taxa, ingroup_id,temp_directory,terminal_clades)
                 
                 if outgroup_count > 0:
                     
@@ -471,7 +532,7 @@ if __name__ == "__main__":
                 if clade_taxa < clade2_taxa:
             
                     sub_outgroup_taxa = clade2_taxa - clade_taxa
-                    outgroup_degen_parquet,outgroup_count = get_degenerate_outgroup_parquet(primary_ingroup_fixed_parquet, clade, base_parquet,sub_outgroup_taxa, clade2, temp_directory,ingroup_snps)
+                    outgroup_degen_parquet,outgroup_count = get_degenerate_outgroup_parquet(primary_ingroup_fixed_parquet, clade, base_parquet,sub_outgroup_taxa, clade2, temp_directory,terminal_clades,ingroup_snps)
                     
                     if outgroup_count > 0:
                         

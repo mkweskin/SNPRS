@@ -52,7 +52,7 @@ process GENERATE_TREE{
     def bb = params.bb as Integer
     def iqtree_model = (params.gtr) ? "-m GTR+G" : "-m MFP+MERGE"
 
-    def tree_cmd = ("${tree_type}" == "fasttree") ? "VeryFastTree -threads $cpu -nt -gtr -nopr -out $tree_file $alignment_file &> $log_file" : "iqtree -nt AUTO $iqtree_model -bb $bb -s $alignment_file --prefix $input_id --keep-ident &> $log_file"
+    def tree_cmd = ("${tree_type}" == "fasttree") ? "VeryFastTree -threads $cpu -nt -gtr gamma -out $tree_file $alignment_file &> $log_file" : "iqtree -nt AUTO $iqtree_model -bb $bb -s $alignment_file --prefix $input_id --keep-ident &> $log_file"
 
     def delete_cmd = (params.overwrite) ? "rm -rf $tree_dir" : ":"
 
