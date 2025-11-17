@@ -11,9 +11,9 @@ from multiprocessing import Lock
 
 lock = Lock()
 
-def save_sample_parquet(raw_sample_parquet, called_base_parquet, scaffold_parquet, sample_parquet, sample_id,summary_file):
+def save_sample_parquet(called_base_parquet, scaffold_parquet, sample_parquet, sample_id,summary_file):
 
-    valid_sites = [0, 1, 3, 4]
+    valid_sites = [0, 1, 3, 4, 6]
     col = sample_id
 
     lazy_scaffold = pl.scan_parquet(scaffold_parquet)
@@ -24,58 +24,18 @@ def save_sample_parquet(raw_sample_parquet, called_base_parquet, scaffold_parque
     min_allele_frequency = called_meta.get("min_allele_frequency")
     min_depth = called_meta.get("min_read_coverage")
 
-    # Sites in scaffold but not called
     lazy_called_sites = lazy_called.select(['contig_index','contig_position']).unique()
-    missing_rows = lazy_scaffold.join(lazy_called_sites, on=['contig_index','contig_position'], how='anti')
 
-    if os.path.exists(raw_sample_parquet):
-        raw = pl.scan_parquet(raw_sample_parquet)
-
-        valid_mask = (
-            (pl.col("base") != "N")
-            & (~pl.col("base").str.starts_with("+"))
-            & (pl.col("depth") >= min_depth)
-            & (pl.col("frequency") >= min_allele_frequency)
-            & ((pl.col("depth") * pl.col("frequency")).round(0).cast(pl.Int64) >= min_allele_cov)
-        )
-
-        lazy_sample_all = raw.select(['contig_index','contig_position']).unique()
-        lazy_sample_valid = raw.filter(valid_mask).select(['contig_index','contig_position']).unique()
-
-        uncovered_rows = (
-            missing_rows
-            .join(lazy_sample_valid, on=['contig_index','contig_position'], how='anti')
-            .with_columns([pl.lit("?").alias(sample_id), pl.lit(5).alias("type")])
-        )
-
-        filtered_rows = (
-            missing_rows
-            .join(uncovered_rows, on=['contig_index','contig_position'], how='anti')
-            .join(lazy_sample_all, on=['contig_index','contig_position'], how='inner')
-            .with_columns([pl.lit("N").alias(sample_id), pl.lit(6).alias("type")])
-        )
-
-        missing_df = (
-            pl.concat([uncovered_rows, filtered_rows])
-            .with_columns(pl.col("type").cast(pl.Int32))
-        )
-
-    else:
-        missing_df = (
-            missing_rows
-            .with_columns([pl.lit("N").alias(sample_id), pl.lit(6).alias("type")])
-            .with_columns(pl.col("type").cast(pl.Int32))
-        )
+    missing_df = (
+        lazy_scaffold
+        .join(lazy_called_sites, on=['contig_index','contig_position'], how='anti')
+        .with_columns([pl.lit("?").alias(sample_id), pl.lit(5).alias("type")])
+    )
 
     # Called bases
     called_rows = (
         lazy_scaffold
         .join(lazy_called, on=['contig_index','contig_position'])
-        .with_columns(
-           pl.when(pl.col("type") == 4)
-          .then(pl.col("final_base").str.to_lowercase())
-          .otherwise(pl.col("final_base"))
-          .alias("final_base"))
         .select(['contig_index','contig_position','final_base','type'])
         .rename({"final_base": sample_id})
         .with_columns(pl.col("type").cast(pl.Int32))
@@ -145,7 +105,6 @@ metadata_bytes = schema.metadata or {}
 og_metadata = {k.decode("utf-8"): v.decode("utf-8") for k, v in metadata_bytes.items()}
 
 sample_id = og_metadata['sample_id']
-raw_parquet_file = og_metadata['sample_parquet']
 
 # Scaffold file
 scaffold_file = os.path.abspath(args.scaffold_file)
@@ -166,8 +125,8 @@ sample_parquet = os.path.join(output_directory,f"Scaffolded_{sample_id}.parquet"
 
 # endregion
 
-# region 01: Assess missing data
+# region 01: Scaffold sample
 
-save_sample_parquet(raw_parquet_file,called_base_file,scaffold_file,sample_parquet,sample_id,summary_file)
+save_sample_parquet(called_base_file,scaffold_file,sample_parquet,sample_id,summary_file)
 
 # endregion
