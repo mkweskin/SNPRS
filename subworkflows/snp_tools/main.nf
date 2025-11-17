@@ -54,3 +54,55 @@ fi"""
     echo -n "${snp_id},${snp_dir}"
     """
 }
+
+/*
+workflow getFixedSites{
+
+    take:
+    called_base_file
+    fixed_id
+
+    emit:
+    fixed_data
+
+    main:
+
+    fixed_data = GET_FIXED_SITES(called_base_file,fixed_id) | splitCsv
+}
+
+process GET_FIXED_SITES{
+
+    input:
+    val(called_base_file)
+    val(fixed_id)
+
+    output:
+    stdout
+
+    script:
+
+    def get_fixed_script = file("${projectDir}/bin/getFixedSites.py")
+    
+    def called_base_path = file(called_base_file)
+    
+    def output_directory = file("${params.final_fixed_directory)}/${fixed_id}")
+        
+    def missing_arg = (params.missing) ? "--missing ${params.missing}" : ""
+    def gap_arg = (params.no_gaps) ? "--no_gaps" : ""
+
+    def delete_cmd = (params.overwrite) ? "rm -rf $output_directory" : 
+    """
+if [[ -d "${output_directory}" ]]; then
+    echo "Error: Directory ${output_directory} already exists. Use --overwrite to replace it." >&2
+    exit 1
+fi"""  
+
+    """
+    $delete_cmd &&
+    mkdir -p ${params.final_fixed_directory} &&
+    mkdir $output_directory &&
+    python $get_fixed_script --called_bases $called_base_path --fixed_id $fixed_id --out $output_directory $missing_arg $gap_arg &&
+    echo -n "${fixed_id},${output_directory}"
+    """
+}
+*/

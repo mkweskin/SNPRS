@@ -59,6 +59,8 @@ def check_nonos(){
         error "Cannot run in classifier mode (--classify) and assemble a pangenome (--pg_reads) in a single run"
     } else if(params.manual_counts && !file(params.manual_counts).exists()){
         error "Count file provided by --manual_counts does not exist"
+    } else if(params.get_fixed && !params.fixed_id){
+        error "--fixed_id required if --get_fixed is set"
     }
 
     return true
@@ -172,7 +174,10 @@ if(check_nonos()){
     // Major subdirectories
     mapping_directory = file("${snprs_directory}/Mapping")
     joined_directory = file("${snprs_directory}/Joined")
+    terminal_directory = file("${joined_directory}/Terminal_Groups")
+    internal_directory = file("${joined_directory}/Internal_Groups")
     sra_directory = file("${snprs_directory}/SRA_Reads")
+    fixed_directory = file("${snprs_directory}/Fixed_Sites")
     classified_directory = file("${snprs_directory}/Classification")
     genome_directory = (params.genome_dir) ? file(params.genome_dir) : file("${snprs_directory}/Reference_Genome")
 
@@ -194,6 +199,7 @@ if(check_nonos()){
     // Subanalysis IDs
     join_id = (params.join_id) ? "${params.join_id}" : "Joined_${timestamp}"
     filter_id = (params.filter_id) ? "${params.filter_id}" : "Filtered_${timestamp}"
+    fixed_id = "${params.fixed_id}"
 
     // SNP Directory
     if (params.snp_dir) {
@@ -221,6 +227,8 @@ if(check_nonos()){
     params.final_genome_directory = genome_directory
     params.final_mapping_directory = mapping_directory
     params.final_joined_directory = joined_directory
+    params.final_terminal_directory = terminal_directory
+    params.final_internal_directory = internal_directory
     params.final_snp_directory = snp_directory
     params.final_sra_directory = sra_directory
     params.final_classified_directory = classified_directory
@@ -276,7 +284,7 @@ workflow{
     }  else if(params.fasta){      
         genome_info = useFASTA(params.fasta) | first
     } else{
-        genome_info = checkGenomeDir(genome_directory) | first
+        genome_info = (params.no_ref) ? Channel.empty() : checkGenomeDir(genome_directory) | first
     }
 
     ///////////////////////////////////// FETCH RAW PARQUETS /////////////////////////////////////////
@@ -311,12 +319,20 @@ workflow{
     new_called_base_data = raw_parquet_data | callBases
     called_bases_data = existing_called_base_data.concat(new_called_base_data) | collect | flatten | collate(2)
 
+    ///////////////////////////////////// GET FIXED SITES /////////////////////////////////////////////
+
+    if(params.get_fixed){
+
+        //fixed_data = (params.fixed_csv) ? getFixedSites(params.fixed_csv,fixed_id) : getFixedSites(params.called_bases,fixed_id)
+        
+    }
+
     //////////////////////////////////////// CLASSIFY /////////////////////////////////////////////////
 
-    if(params.classify && params.snp_dir){
+    else if(params.classify && params.snp_dir){
       
-        classified_data = genome_info.combine(called_bases_data).map{it->tuple(it[0],it[1],it[3],it[4],snp_directory,snp_id)} | classifySample | collect | flatten | collate(3)
-        classified_data | view
+        //classified_data = genome_info.combine(called_bases_data).map{it->tuple(it[0],it[1],it[3],it[4],snp_directory,snp_id)} | classifySample | collect | flatten | collate(3)
+        //classified_data | view
         
     } else{
 

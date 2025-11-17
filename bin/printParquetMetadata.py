@@ -34,7 +34,7 @@ def parquet_preview(parquet_path,preview_data):
         row_count = pq.ParquetFile(parquet_path).metadata.num_rows
         print(f"\nTotal rows: {row_count}")
         head_df = lf.limit(25).collect()
-        #head_df = lf.filter((pl.col("contig_index") == 934)).limit(105).collect()
+        #head_df = lf.filter((pl.col("type") == 6)).collect()
 
         print("\nFirst 25 rows:")
         pl.Config.set_tbl_rows(25)

@@ -31,10 +31,10 @@ process CLASSIFY_SAMPLE{
 
     script:
 
+    def classifyScript = file("${projectDir}/bin/snprs_classify.py")
+
     def snp_path = file("${snp_directory}/${snp_id}")
     def classified_dir = file("${classified_directory}/${snp_id}")
-
-    
 
     def output_parquet = file("${classified_dir}/${sample_id}_Classified.parquet")
     def output_csv = file("${classified_dir}/${sample_id}_Classified.csv")

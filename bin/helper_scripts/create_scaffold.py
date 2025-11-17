@@ -36,7 +36,7 @@ def get_scaffold_sites(temp_directory,sorted_parquet_paths):
     tmp_file = os.path.join(temp_directory, "Temp.parquet")
     stage_file = os.path.join(temp_directory, "Stage.parquet")
 
-    valid_sites = [0, 1, 3, 4]
+    valid_sites = [0, 1, 3, 4, 6]
 
     (
         pl.scan_parquet(sorted_parquet_paths[0])
