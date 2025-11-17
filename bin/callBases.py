@@ -138,7 +138,22 @@ ploidy_fail_positions = (
     .agg(pl.len().alias("allele_count"))
     .filter(pl.col("allele_count") > max_alleles)
     .select(["contig_index", "contig_position"])
+    .unique()
 )
+
+ploidy_fail_df = (
+    ploidy_fail_positions
+    .with_columns(
+        pl.lit("N").alias('final_base'),
+        pl.lit(6).alias('type'))
+        .cast({
+            "contig_index": pl.Int64,
+            "contig_position": pl.Int64,
+            "final_base": pl.Utf8,
+            "type": pl.Int64
+        })
+).collect()
+
 
 base_df = (
     base_df_lazy.join(
@@ -297,7 +312,7 @@ else:
         "type": pl.Int64
     })
 
-combined_df = pl.concat([insertion_df, fixed_df, het_df]).sort(['contig_index','contig_position'])
+combined_df = pl.concat([insertion_df, fixed_df, het_df,ploidy_fail_df]).sort(['contig_index','contig_position'])
 
 # Get final counts
 map_df = pl.DataFrame({
