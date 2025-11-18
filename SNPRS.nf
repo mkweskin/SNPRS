@@ -51,16 +51,12 @@ def check_nonos(){
         error "Split file provided by --split_file does not exist"
     } else if(params.group_file && !file(params.group_file).exists()){
         error "Group file provided by --group_file does not exist"
-    } else if(params.classify && !params.snp_dir){
-        error "Cannot run in classifier mode (--classify) without providing SNP information (--snp_dir)"
-    } else if(params.classify && (!params.map_reads && !params.map_sra && !params.bam_files && !params.raw_parquets && !params.called_bases)){
-        error "Cannot run in classifier mode (--classify) without data (--map_reads/--map_sra/--bam_files/--raw_parquets/--called_bases)"
-    } else if(params.classify && params.pg_reads){
-        error "Cannot run in classifier mode (--classify) and assemble a pangenome (--pg_reads) in a single run"
     } else if(params.manual_counts && !file(params.manual_counts).exists()){
         error "Count file provided by --manual_counts does not exist"
-    } else if(params.get_fixed && !params.fixed_id){
-        error "--fixed_id required if --get_fixed is set"
+    } else if(params.terminal_csv && (params.terminal_bases || params.out_terminal_bases)){
+        error("Can't generate terminal groups with both --terminal_csv and --terminal_bases/--out_terminal_bases")
+    } else if((params.terminal_csv || params.terminal_bases || params.out_terminal_bases) && (params.called_bases || params.map_reads || params.map_sra || params.bam_files || params.raw_parquets) ){
+        error("Can't generate terminal groups if processing other data in the same run")
     }
 
     return true
@@ -178,7 +174,6 @@ if(check_nonos()){
     internal_directory = file("${joined_directory}/Internal_Groups")
     sra_directory = file("${snprs_directory}/SRA_Reads")
     fixed_directory = file("${snprs_directory}/Fixed_Sites")
-    classified_directory = file("${snprs_directory}/Classification")
     genome_directory = (params.genome_dir) ? file(params.genome_dir) : file("${snprs_directory}/Reference_Genome")
 
     // Genome Name
@@ -231,7 +226,6 @@ if(check_nonos()){
     params.final_internal_directory = internal_directory
     params.final_snp_directory = snp_directory
     params.final_sra_directory = sra_directory
-    params.final_classified_directory = classified_directory
 
     // Parameterize IDs
     params.final_join_id = join_id
@@ -271,112 +265,100 @@ include {makeSNPGroups} from "./subworkflows/tree_tools/main.nf"
 include {generateTree} from "./subworkflows/tree_tools/main.nf"
 
 include {generateSNPs} from "./subworkflows/snp_tools/main.nf"
-include {classifySample} from "./subworkflows/classifier/main.nf"
 
 workflow{
 
-    ///////////////////////////////////////// FETCH GENOME ////////////////////////////////////////////
+    ////////////////////////////////////////// SOLO TASKS /////////////////////////////////////////////
 
-    genome_info = Channel.empty()
-
-    if(params.pg_reads){
-        genome_info = assembleGenome(params.pg_reads) | first
-    }  else if(params.fasta){      
-        genome_info = useFASTA(params.fasta) | first
-    } else{
-        genome_info = (params.no_ref) ? Channel.empty() : checkGenomeDir(genome_directory) | first
-    }
-
-    ///////////////////////////////////// FETCH RAW PARQUETS /////////////////////////////////////////
-
-    new_parquet_data = Channel.empty()
-    raw_parquet_data = Channel.empty()
-    called_bases_data = Channel.empty()
-
-    // Get existing files    
-    existing_bam_data = (params.bam_files) ? fetchBAM(params.bam_files) : Channel.empty()
-    existing_parquet_data = (params.raw_parquets) ? fetchRawParquet(params.raw_parquets) : Channel.empty()
-    existing_called_base_data = (params.called_bases) ? fetchCalledBases(params.called_bases) : Channel.empty()
-
-    if((!params.joined && !params.filtered) && (params.bam_files || params.map_reads || params.map_sra)){
-        
-        // Check for new read data to be mapped
-        map_read_data = (params.map_reads) ? fetchMapReads(params.map_reads) : Channel.empty()
-        sra_read_data = (params.map_sra) ? fetchSRAReads(params.map_sra): Channel.empty()
-        
-        // Map reads
-        uncollected_bam_data = map_read_data.concat(sra_read_data).combine(genome_info).map{it->tuple(it[0],it[1],it[2],it[5])} | mapReads
-        new_bam_data = (params.local) ?  uncollected_bam_data | collect | flatten | collate(2) : uncollected_bam_data
-        
-        // Convert to parquet
-        new_parquet_data = existing_bam_data.concat(new_bam_data).combine(genome_info).map{it->tuple(it[0],it[1],it[4])} | bamToParquet
-    }
-    
-    raw_parquet_data = (params.local) ? existing_parquet_data.concat(new_parquet_data) | collect | flatten | collate(2) : new_parquet_data.concat(existing_parquet_data) 
-
-    //////////////////////////////////////// CALL BASES ///////////////////////////////////////////////
-
-    new_called_base_data = raw_parquet_data | callBases
-    called_bases_data = existing_called_base_data.concat(new_called_base_data) | collect | flatten | collate(2)
-
-    ///////////////////////////////////// GET FIXED SITES /////////////////////////////////////////////
-
-    if(params.get_fixed){
+    if(params.terminal_csv || params.terminal_bases || params.out_terminal_bases){
 
         //fixed_data = (params.fixed_csv) ? getFixedSites(params.fixed_csv,fixed_id) : getFixedSites(params.called_bases,fixed_id)
         
     }
 
-    //////////////////////////////////////// CLASSIFY /////////////////////////////////////////////////
 
-    else if(params.classify && params.snp_dir){
-      
-        //classified_data = genome_info.combine(called_bases_data).map{it->tuple(it[0],it[1],it[3],it[4],snp_directory,snp_id)} | classifySample | collect | flatten | collate(3)
-        //classified_data | view
+
+    else{
+
+        ///////////////////////////////////////// FETCH GENOME ////////////////////////////////////////////
+
+        genome_info = Channel.empty()
+
+        if(params.pg_reads){
+            genome_info = assembleGenome(params.pg_reads) | first
+        }  else if(params.fasta){      
+            genome_info = useFASTA(params.fasta) | first
+        } else{
+            genome_info = (params.no_ref) ? Channel.empty() : checkGenomeDir(genome_directory) | first
+        }
+
+
+        ///////////////////////////////////// FETCH RAW PARQUETS /////////////////////////////////////////
+
+        new_parquet_data = Channel.empty()
         
-    } else{
+        if((!params.joined && !params.filtered) && (params.bam_files || params.map_reads || params.map_sra)){
+            
+            // Check for new read data to be mapped
+            map_read_data = (params.map_reads) ? fetchMapReads(params.map_reads) : Channel.empty()
+            sra_read_data = (params.map_sra) ? fetchSRAReads(params.map_sra): Channel.empty()
+            
+            // Map reads
+            uncollected_bam_data = map_read_data.concat(sra_read_data).combine(genome_info).map{it->tuple(it[0],it[1],it[2],it[5])} | mapReads
+            new_bam_data = (params.local) ?  uncollected_bam_data | collect | flatten | collate(2) : uncollected_bam_data
+            
+            // Convert to parquet
+            existing_bam_data = (params.bam_files) ? fetchBAM(params.bam_files) : Channel.empty()
+            new_parquet_data = existing_bam_data.concat(new_bam_data).combine(genome_info).map{it->tuple(it[0],it[1],it[4])} | bamToParquet
+        }
+        
+        existing_parquet_data = (params.raw_parquets) ? fetchRawParquet(params.raw_parquets) : Channel.empty()
+        raw_parquet_data = (params.local) ? existing_parquet_data.concat(new_parquet_data) | collect | flatten | collate(2) : new_parquet_data.concat(existing_parquet_data) 
 
-        tree_file = (params.tree_file) ? Channel.fromPath(params.tree_file) : Channel.empty()
-        alignment_file = (params.alignment_file) ? Channel.fromPath(params.alignment_file) : Channel.empty()
-        split_file = (params.split_file) ? Channel.fromPath(params.split_file) : Channel.empty()
-        group_file = (params.group_file) ? Channel.fromPath(params.group_file) : Channel.empty()
+        //////////////////////////////////////// CALL BASES ///////////////////////////////////////////////
+        
+        existing_called_base_data = (params.called_bases) ? fetchCalledBases(params.called_bases) : Channel.empty()
+        new_called_base_data = raw_parquet_data | callBases
+        called_bases_data = existing_called_base_data.concat(new_called_base_data) | collect | flatten | collate(2)
 
-    ///////////////////////////////////// JOIN CALLED BASES ///////////////////////////////////////////
-    
+        ///////////////////////////////////// JOIN CALLED BASES ///////////////////////////////////////////
+
         joined_data = (params.joined) ? fetchJoin(params.joined) : joinCalledBases(called_bases_data)
 
-    ///////////////////////////////////// FILTER JOINED DATA //////////////////////////////////////////
+        ///////////////////////////////////// FILTER JOINED DATA //////////////////////////////////////////
 
         filtered_data = (params.filtered) ? fetchFiltered(params.filtered) : filterJoined(joined_data)
 
-    ///////////////////////////////////// GET ALIGNMENT ///////////////////////////////////////////////
+        ///////////////////////////////////// GET ALIGNMENT ///////////////////////////////////////////////
 
-        if(!params.filter && !params.snp_dir && !params.split_file && !params.group_file && !params.alignment_file){
-            alignment_file = getAlignment(filtered_data) | collect | flatten | collate(1)
+        if(!params.filter && !params.snp_dir && !params.split_file && !params.group_file){
+            alignment_file = (params.alignment_file) ? Channel.fromPath(params.alignment_file) : getAlignment(filtered_data) | collect | flatten | collate(1)
         }
 
-    //////////////////////////////////////// GET TREE /////////////////////////////////////////////////
+        //////////////////////////////////////// GET TREE /////////////////////////////////////////////////
 
-        if(!params.alignment && !params.snp_dir && !params.split_file && !params.group_file && !params.tree_file){
-            tree_file = filtered_data.combine(alignment_file) | generateTree | collect | flatten | collate(1)
+        if(!params.alignment && !params.snp_dir && !params.split_file && !params.group_file){
+            tree_file = (params.tree_file) ? Channel.fromPath(params.tree_file) : filtered_data.combine(alignment_file) | generateTree | collect | flatten | collate(1)
         }
 
-    //////////////////////////////////////// GET SPLITS ///////////////////////////////////////////////
+        //////////////////////////////////////// GET SPLITS ///////////////////////////////////////////////
 
-        if(!params.tree && !params.snp_dir && !params.split_file && !params.group_file){
-            split_file = tree_file | makeSplitTable | collect | flatten | collate(1)
+        if(!params.tree && !params.snp_dir && !params.group_file){
+            split_file = (params.split_file) ? Channel.fromPath(params.split_file) : tree_file | makeSplitTable | collect | flatten | collate(1)
         }
 
-    //////////////////////////////////////// GET GROUPS ///////////////////////////////////////////////
+        //////////////////////////////////////// GET GROUPS ///////////////////////////////////////////////
 
-        if(!params.tree && !params.split && !params.snp_dir && !params.group_file && params.split_file){
-            group_file = tree_file.combine(split_file) | makeSNPGroups | collect | flatten | collate(1)
+        if(!params.tree && !params.split && !params.snp_dir){
+            group_file = (params.group_file) ? Channel.fromPath(params.group_file)  : tree_file.combine(split_file) | makeSNPGroups | collect | flatten | collate(1)
         }
 
-    //////////////////////////////////////// GET SNPS //////////////////////////////////////////////////
+        //////////////////////////////////////// GET SNPS //////////////////////////////////////////////////
 
         if(params.group_file && !params.snp_dir){        
             snp_data = filtered_data.combine(tree_file).combine(group_file).map{it->tuple(it[0],it[1],snp_id,snp_directory,it[2],it[3])} | generateSNPs | collect | flatten | collate(2)
         }
+
     }
+
 }   
