@@ -1,23 +1,23 @@
 #! /usr/bin/env nextflow
 nextflow.enable.dsl=2
 
-kmer = params.kmer as Integer
-cpu = params.cpus as Integer
-sample_cpu = (params.sample_cpus) ? params.sample_cpus as Integer : cpu
-count_cpu = (cpu >= 2) ? 2 : cpu
+def kmer = params.kmer as Integer
+def cpu = params.cpus as Integer
+def sample_cpu = (params.sample_cpus) ? params.sample_cpus as Integer : cpu
+def count_cpu = (cpu >= 2) ? 2 : cpu
 
-node = params.nodes as Integer
-ray_cores = cpu * node
+def node = params.nodes as Integer
+def ray_cores = cpu * node
 
-new_genome_name = "${params.new_genome_name}"
-genome_directory = file(params.final_genome_directory)
-genome_prep_directory = file("${genome_directory}/Prep_${new_genome_name}")
-subset_directory = file("${genome_prep_directory}/Subset_Reads")
-pangenome_read_link_directory = file("${genome_directory}/Pangenome_Read_Links")
+def new_genome_name = "${params.new_genome_name}"
+def genome_directory = file(params.final_genome_directory)
+def genome_prep_directory = file("${genome_directory}/Prep_${new_genome_name}")
+def subset_directory = file("${genome_prep_directory}/Subset_Reads")
+def pangenome_read_link_directory = file("${genome_directory}/Pangenome_Read_Links")
 
-read_ext = params.read_ext
-forward = params.forward
-reverse = params.reverse
+def read_ext = params.read_ext
+def forward = params.forward
+def reverse = params.reverse
 
 ///// Create a SNPRS pangenome from reads /////
 workflow assembleGenome{
@@ -75,7 +75,7 @@ process FETCH_PG_READS{
 
     script:
 
-    def fetchPGScript = file("${projectDir}/bin/fetchPangenomeReads.py")
+    fetchPGScript = file("${projectDir}/bin/fetchPangenomeReads.py")
 
     read_data = file(pg_read_data)
     
@@ -93,7 +93,7 @@ process FETCH_PG_READS{
         group_file = file("${genome_prep_directory}/Read_Groups.csv")
     }
 
-    def delete_cmd = (params.overwrite) ? "rm -rf $genome_directory" : ":"
+    delete_cmd = (params.overwrite) ? "rm -rf $genome_directory" : ":"
     
     """
     $delete_cmd &&
@@ -119,9 +119,9 @@ process COUNT_BASES {
 
     script:
     
-    def base_count_file = file("${genome_prep_directory}/Read_Counts.csv")
+    base_count_file = file("${genome_prep_directory}/Read_Counts.csv")
     
-    def stats_cmd = reverse_read 
+    stats_cmd = reverse_read 
     ? "seqkit stats -j $count_cpu -a -T ${forward_read} ${reverse_read}" 
     : "seqkit stats -j $count_cpu -a -T ${forward_read}"
 
@@ -147,15 +147,15 @@ process CALCULATE_SUBSETS{
 
     script:
 
-    def calculate_sub_script = file("${projectDir}/bin/calculateSubset.py")
+    calculate_sub_script = file("${projectDir}/bin/calculateSubset.py")
     
-    def group_file = file("${genome_prep_directory}/Read_Groups.csv")
+    group_file = file("${genome_prep_directory}/Read_Groups.csv")
 
-    def size = params.size as Integer
-    def out_prop = params.out_prop as Float
-    def coverage = params.coverage as Integer
+    size = params.size as Integer
+    out_prop = params.out_prop as Float
+    coverage = params.coverage as Integer
 
-    def data_args = (params.manual_counts) ? "-m ${file(params.manual_counts)}" : "-b ${base_count_file} -g ${group_file}"
+    data_args = (params.manual_counts) ? "-m ${file(params.manual_counts)}" : "-b ${base_count_file} -g ${group_file}"
     
     """
     python ${calculate_sub_script} $data_args -s ${size} -c ${coverage} -o ${subset_directory} -p ${out_prop}
@@ -176,15 +176,15 @@ process SUBSET_READS {
 
     script:
 
-    def safe_ext = read_ext.startsWith('.') ? read_ext : ".${read_ext}"
+    safe_ext = read_ext.startsWith('.') ? read_ext : ".${read_ext}"
 
-    def out1 = "${subset_directory}/${subsample_id}_GenomeReads${forward}"
-    def out2 = "${subset_directory}/${subsample_id}_GenomeReads${reverse}"
-    def outs = "${subset_directory}/${subsample_id}_GenomeReads${safe_ext}"
+    out1 = "${subset_directory}/${subsample_id}_GenomeReads${forward}"
+    out2 = "${subset_directory}/${subsample_id}_GenomeReads${reverse}"
+    outs = "${subset_directory}/${subsample_id}_GenomeReads${safe_ext}"
 
-    def log_file = "${subset_directory}/out_Subsample_${sample_id}"
+    log_file = "${subset_directory}/out_Subsample_${sample_id}"
 
-    def reformat_cmd = reverse_read
+    reformat_cmd = reverse_read
         ? "reformat.sh in=${forward_read} in2=${reverse_read} out=${out1} out2=${out2} outs=${outs} samplebasestarget=${allocated} &> ${log_file}"
         : "reformat.sh in=${forward_read} out=${outs} samplebasestarget=${allocated} &> ${log_file}"
 
@@ -228,13 +228,13 @@ process LINK_READS {
 
     script:   
 
-    def safe_ext = read_ext.startsWith('.') ? read_ext : ".${read_ext}"
+    safe_ext = read_ext.startsWith('.') ? read_ext : ".${read_ext}"
 
-    def out1 = "${subset_directory}/${subsample_id}_GenomeReads${forward}"
-    def out2 = "${subset_directory}/${subsample_id}_GenomeReads${reverse}"
-    def outs = "${subset_directory}/${subsample_id}_GenomeReads${safe_ext}"
+    out1 = "${subset_directory}/${subsample_id}_GenomeReads${forward}"
+    out2 = "${subset_directory}/${subsample_id}_GenomeReads${reverse}"
+    outs = "${subset_directory}/${subsample_id}_GenomeReads${safe_ext}"
 
-    def link_cmd = reverse_read
+    link_cmd = reverse_read
         ? "ln -s ${forward_read} ${out1}; ln -s ${reverse_read} ${out2}"
         : "ln -s ${forward_read} ${outs}"
 
@@ -258,9 +258,9 @@ process ASSEMBLE_PANGENOME {
 
     script:
  
-    def assembly_directory = file("${genome_prep_directory}/Ray_${new_genome_name}")
-    def ray_log = file("${genome_prep_directory}/out_Ray_${new_genome_name}")
-    def load_ray_module = (params.ray_module) ? "module load -s ${params.ray_module}" : ":"
+    assembly_directory = file("${genome_prep_directory}/Ray_${new_genome_name}")
+    ray_log = file("${genome_prep_directory}/out_Ray_${new_genome_name}")
+    load_ray_module = (params.ray_module) ? "module load -s ${params.ray_module}" : ":"
 
     """
     $load_ray_module
@@ -280,12 +280,12 @@ process PROCESS_RAY{
     stdout
 
     script:
-    def index_script = file("${projectDir}/bin/contig_idx.py")
+    index_script = file("${projectDir}/bin/contig_idx.py")
 
-    def genome_file = file("${genome_directory}/${new_genome_name}.fasta")
-    def stats_file = file("${genome_directory}/${new_genome_name}_BBStats")
+    genome_file = file("${genome_directory}/${new_genome_name}.fasta")
+    stats_file = file("${genome_directory}/${new_genome_name}_BBStats")
 
-    def min_contig = params.min_contig as Integer
+    min_contig = params.min_contig as Integer
 
     """
     rename.sh in=${ray_assembly} out=${genome_file} prefix=SNPRS addprefix=t trd=t minscaf=${min_contig}
@@ -323,20 +323,20 @@ process USE_FASTA{
 
     script:
     
-    def index_script = file("${projectDir}/bin/contig_idx.py")
+    index_script = file("${projectDir}/bin/contig_idx.py")
 
-    def fasta_file = file("${fasta_path}")
-    def fasta_parent = fasta_file.getParent()
+    fasta_file = file("${fasta_path}")
+    fasta_parent = fasta_file.getParent()
     
     if(fasta_parent == genome_directory){
         error "Cannot use --fasta if already in the genome directory (move it out and SNPRS will link it)"
     }
 
-    def genome_file = file("${genome_directory}/${new_genome_name}.fasta")
-    def index_parquet = file("${genome_directory}/${new_genome_name}.parquet")
-    def sam_idx = file("${genome_file}.fai")
+    genome_file = file("${genome_directory}/${new_genome_name}.fasta")
+    index_parquet = file("${genome_directory}/${new_genome_name}.parquet")
+    sam_idx = file("${genome_file}.fai")
 
-    def delete_cmd = (params.overwrite) ? "rm -rf $genome_directory"
+    delete_cmd = (params.overwrite) ? "rm -rf $genome_directory"
     : """
 if [ -d "$genome_directory" ] ; then
     echo "❌ Error: $genome_directory already exists! Use --overwrite to replace." >&2
