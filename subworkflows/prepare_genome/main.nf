@@ -58,23 +58,7 @@ workflow assembleGenome{
     ray_fasta = ASSEMBLE_PANGENOME(subset_folder)
 
     // Index pangenome
-    pre_genome = PROCESS_RAY(ray_fasta) | splitCsv | collect | flatten | collate(3) 
-
-    return_pangenome = pre_genome | checkStop | collect | flatten | collate(3)
-
-}
-
-workflow checkStop{
-    take:
-    pre_genome
-
-    emit:
-    return_pangenome
-
-    main:
-
-    return_pangenome = (params.pangenome) ? Channel.empty() : pre_genome
-
+    return_pangenome = PROCESS_RAY(ray_fasta) | splitCsv | collect | flatten | collate(3) 
 }
 
 process FETCH_PG_READS{

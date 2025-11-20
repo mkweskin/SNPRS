@@ -31,19 +31,37 @@ def validate_file(path, flag) {
 
 def check_nonos(){
 
-    if(params.genome_dir && params.fasta){
+    if(!params.out){
+        error "Must specify analysis directory via --out"
+    } 
+    
+    // Pangenome assembly checks
+    else if(params.pg_reads && !params.genome_name){
+        error "Cannot assemble a pangenome without --genome_name"
+    } else if(params.pg_reads && !params.size){
+        error "Cannot assemble a pangenome without --size"
+    } else if(params.genome_dir && params.fasta){
         error "Cannot set --genome_dir and --fasta together"
     } else if(params.genome_dir && params.pg_reads){
         error "Cannot set --genome_dir and --pg_reads together"
     } else if(params.fasta && params.pg_reads){
-        error "Cannot set --fasta and --pg_reads together"
-    }  else if(params.pg_reads && !params.size){
-        error "Cannot set assemble pangenome without --size"
-    } else if(params.pangenome && !params.pg_reads){
-        error "Cannot set assemble pangenome without --pg_reads"
-    } else if((params.joined || params.filtered) && (params.map_reads || params.map_sra)){
-        error "Cannot add new mapping data to existing joined/filtered datasets"
-    } else if(params.alignment_file && !file(params.alignment_file).exists()){
+       error "Cannot set --fasta and --pg_reads together"
+    } 
+    
+    // Data checks
+    else if((params.joined || params.filtered) && (params.bam_files || params.map_reads || params.map_sra)){
+        error "Cannot map new data if providing data via --joined or --filtered"
+    }
+    
+    // Terminal checks
+    else if(params.terminal_csv && !file(params.terminal_csv).exists()){
+        error "CSV file provided by --terminal_csv does not exist"
+    } else if(params.terminal_csv && params.terminal_id){
+        error("Can't generate terminal groups with both --terminal_csv and --terminal_id")
+    }
+    
+    // File checks
+    else if(params.alignment_file && !file(params.alignment_file).exists()){
         error "Alignment file provided by --alignment_file does not exist"
     } else if(params.tree_file && !file(params.tree_file).exists()){
         error "Tree file provided by --tree_file does not exist"
@@ -53,11 +71,8 @@ def check_nonos(){
         error "Group file provided by --group_file does not exist"
     } else if(params.manual_counts && !file(params.manual_counts).exists()){
         error "Count file provided by --manual_counts does not exist"
-    } else if(params.terminal_csv && (params.terminal_bases || params.out_terminal_bases)){
-        error("Can't generate terminal groups with both --terminal_csv and --terminal_bases/--out_terminal_bases")
-    } else if((params.terminal_csv || params.terminal_bases || params.out_terminal_bases) && (params.called_bases || params.map_reads || params.map_sra || params.bam_files || params.raw_parquets) ){
-        error("Can't generate terminal groups if processing other data in the same run")
-    }
+    } 
+
 
     return true
 }
@@ -73,69 +88,14 @@ timestamp = "${params.timestamp}"
 
 if(check_nonos()){
 
-    if(params.out){
-        snprs_directory = file(params.out)
-        parent_dir = snprs_directory.getParent()
 
-        if(snprs_directory.isDirectory()){
-            new_dir = false
-        } else{
-            validate_dir(parent_dir,"out")
-            snprs_directory.mkdirs()
-            new_dir = true 
-        }
-
-    } else if(params.joined || params.filtered || params.snp_dir ||  params.group_file || params.split_file || params.genome_dir){
-
-        if(params.joined){
-
-            test_dir = file(params.joined)
-            validate_dir(test_dir,"joined")
-            snprs_directory = test_dir.getParent().getParent()
-            new_dir = false
-
-
-        } else if(params.filtered){
-
-            test_dir = file(params.filtered)
-            validate_dir(test_dir,"filtered")
-            snprs_directory = test_dir.getParent().getParent().getParent()
-            new_dir = false
-
-        } else if(params.snp_dir){
-
-            test_dir = file(params.snp_dir)
-            validate_dir(test_dir,"snp_dir")
-            snprs_directory = test_dir.getParent().getParent()
-            new_dir = false
-
-        } else if(params.split_file){
-
-            test_file = file(params.split_file)
-            validate_file(test_file,"split_file")
-            snprs_directory = test_file.getParent().getParent().getParent()
-            new_dir = false
-
-        } else if(params.group_file){
-            
-            test_file = file(params.group_file)
-            validate_file(test_file,"group_file")
-            snprs_directory = test_file.getParent().getParent().getParent()
-            new_dir = false
-
-        } else if(params.genome_dir){
-            
-            test_dir = file(params.genome_dir)
-            validate_dir(test_dir,"genome_dir")
-            snprs_directory = test_dir.getParent()
-            new_dir = false
-
-        } else{
-            error "Output directory could not be determined"
-        }
-
+    snprs_directory = file(params.out)
+    
+    if(snprs_directory.isDirectory()){
+        new_dir = false
     } else{
-        snprs_directory = file("SNPRS_${timestamp}")
+        parent_dir = snprs_directory.getParent()
+        validate_dir(parent_dir,"out")
         snprs_directory.mkdirs()
         new_dir = true 
     }
@@ -146,37 +106,24 @@ if(check_nonos()){
         log_directory.mkdirs()
     }
 
-    log_file = file("${log_directory}/SNPRS_Log_${timestamp}.txt")
+    log_file = file("${log_directory}/SNPRS_Log_${timestamp}.txt")        
+    log("SNPRS Log File")
+    log("${new java.text.SimpleDateFormat('yyyy-MM-dd HH:mm:ss').format(new java.util.Date())}\n")
+    log("Command: ${cmd_args}\n")
 
-    if (log_file.exists()) {
-        error "Log file ${log_file} already exists?"
-    } else {
-        
-        // Cache log file info as params for other processes
-        params.log_directory = file(log_directory)
-        params.log_file = file(log_file)
-        
-        log("SNPRS Log File")
-        log("${new java.text.SimpleDateFormat('yyyy-MM-dd HH:mm:ss').format(new java.util.Date())}\n")
-        log("Command: ${cmd_args}\n")
-
-        if(new_dir){
-            tab_log("Created output directory: ${snprs_directory}")
-        } else{
-            tab_log("Found output directory: ${snprs_directory}")
-        }
+    if(new_dir){
+        tab_log("Created output directory: ${snprs_directory}")
+    } else{
+        tab_log("Found output directory: ${snprs_directory}")
     }
 
-    // Major subdirectories
-    mapping_directory = file("${snprs_directory}/Mapping")
-    joined_directory = file("${snprs_directory}/Joined")
-    terminal_directory = file("${joined_directory}/Terminal_Groups")
-    internal_directory = file("${joined_directory}/Internal_Groups")
-    sra_directory = file("${snprs_directory}/SRA_Reads")
-    fixed_directory = file("${snprs_directory}/Fixed_Sites")
+    // Genome Information
+
     genome_directory = (params.genome_dir) ? file(params.genome_dir) : file("${snprs_directory}/Reference_Genome")
 
     // Genome Name
+
+
     new_genome_name = "SNPRS_${timestamp}"
 
     if(!params.genome_dir){
@@ -190,6 +137,16 @@ if(check_nonos()){
     } else{
         validate_dir(genome_directory,"genome_dir")
     }
+
+    mapping_directory = file("${snprs_directory}/Mapping")
+
+    joined_directory = file("${snprs_directory}/Joined")
+    terminal_directory = file("${joined_directory}/Terminal_Groups")
+    internal_directory = file("${joined_directory}/Internal_Groups")
+    sra_directory = file("${snprs_directory}/SRA_Reads")
+    fixed_directory = file("${snprs_directory}/Fixed_Sites")
+
+
 
     // Subanalysis IDs
     join_id = (params.join_id) ? "${params.join_id}" : "Joined_${timestamp}"
@@ -226,6 +183,9 @@ if(check_nonos()){
     params.final_internal_directory = internal_directory
     params.final_snp_directory = snp_directory
     params.final_sra_directory = sra_directory
+
+    params.final_log_directory = file(log_directory)
+    params.final_log_file = file(log_file)
 
     // Parameterize IDs
     params.final_join_id = join_id
@@ -277,6 +237,7 @@ workflow{
     }
 
 
+        ///////////////////////////////////////// MAIN WORKFLOW ////////////////////////////////////////////
 
     else{
 
@@ -297,8 +258,8 @@ workflow{
 
         new_parquet_data = Channel.empty()
         
-        if((!params.joined && !params.filtered) && (params.bam_files || params.map_reads || params.map_sra)){
-            
+        if(params.bam_files || params.map_reads || params.map_sra){
+    
             // Check for new read data to be mapped
             map_read_data = (params.map_reads) ? fetchMapReads(params.map_reads) : Channel.empty()
             sra_read_data = (params.map_sra) ? fetchSRAReads(params.map_sra): Channel.empty()
@@ -316,49 +277,68 @@ workflow{
         raw_parquet_data = (params.local) ? existing_parquet_data.concat(new_parquet_data) | collect | flatten | collate(2) : new_parquet_data.concat(existing_parquet_data) 
 
         //////////////////////////////////////// CALL BASES ///////////////////////////////////////////////
-        
+
         existing_called_base_data = (params.called_bases) ? fetchCalledBases(params.called_bases) : Channel.empty()
-        new_called_base_data = raw_parquet_data | callBases
+        new_called_base_data = Channel.empty()
+        
+        if(params.call){
+            new_called_base_data = raw_parquet_data | callBases
+        }
+
         called_bases_data = existing_called_base_data.concat(new_called_base_data) | collect | flatten | collate(2)
 
         ///////////////////////////////////// JOIN CALLED BASES ///////////////////////////////////////////
 
-        joined_data = (params.joined) ? fetchJoin(params.joined) : joinCalledBases(called_bases_data)
+        if(params.joined){
+            joined_data = fetchJoin(params.joined)
+        } else if(params.join){
+            joined_data = joinCalledBases(called_bases_data)
+        }
 
         ///////////////////////////////////// FILTER JOINED DATA //////////////////////////////////////////
 
-        filtered_data = (params.filtered) ? fetchFiltered(params.filtered) : filterJoined(joined_data)
+        if(params.filtered){
+            filtered_data = fetchFiltered(params.filtered) 
+        } else if(params.filter){
+            filtered_data = filterJoined(joined_data)
+        }
 
         ///////////////////////////////////// GET ALIGNMENT ///////////////////////////////////////////////
 
-        if(!params.filter && !params.snp_dir && !params.split_file && !params.group_file){
-            alignment_file = (params.alignment_file) ? Channel.fromPath(params.alignment_file) : getAlignment(filtered_data) | collect | flatten | collate(1)
+        if(params.alignment_file){
+            alignment_file = Channel.fromPath(params.alignment_file) 
+        } else if(params.alignment){
+            alignment_file = getAlignment(filtered_data) | collect | flatten | collate(1)
         }
 
         //////////////////////////////////////// GET TREE /////////////////////////////////////////////////
 
-        if(!params.alignment && !params.snp_dir && !params.split_file && !params.group_file){
-            tree_file = (params.tree_file) ? Channel.fromPath(params.tree_file) : filtered_data.combine(alignment_file) | generateTree | collect | flatten | collate(1)
+        if(params.tree_file){
+            tree_file = Channel.fromPath(params.tree_file) 
+        } else if(params.tree){
+            tree_file = filtered_data.combine(alignment_file) | generateTree | collect | flatten | collate(1)
         }
 
         //////////////////////////////////////// GET SPLITS ///////////////////////////////////////////////
-
-        if(!params.tree && !params.snp_dir && !params.group_file){
-            split_file = (params.split_file) ? Channel.fromPath(params.split_file) : tree_file | makeSplitTable | collect | flatten | collate(1)
+        
+        if(params.split_file){
+            split_file = Channel.fromPath(params.split_file) 
+        } else if(params.split){
+            split_file = tree_file | makeSplitTable | collect | flatten | collate(1)
         }
 
         //////////////////////////////////////// GET GROUPS ///////////////////////////////////////////////
 
-        if(!params.tree && !params.split && !params.snp_dir){
-            group_file = (params.group_file) ? Channel.fromPath(params.group_file)  : tree_file.combine(split_file) | makeSNPGroups | collect | flatten | collate(1)
+        if(params.group_file){
+            group_file = Channel.fromPath(params.group_file) 
+        } else if(params.split){
+            group_file = tree_file.combine(split_file) | makeSNPGroups | collect | flatten | collate(1)
         }
 
         //////////////////////////////////////// GET SNPS //////////////////////////////////////////////////
-
-        if(params.group_file && !params.snp_dir){        
+        if(params.make_snps){
             snp_data = filtered_data.combine(tree_file).combine(group_file).map{it->tuple(it[0],it[1],snp_id,snp_directory,it[2],it[3])} | generateSNPs | collect | flatten | collate(2)
         }
-
     }
 
 }   
