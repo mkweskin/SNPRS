@@ -456,4 +456,5 @@ allocation_summary_file = f"{log_dir}/Sample_Allocation_Summary.tsv"
 
 combined_summary.to_csv(allocation_summary_file, sep="\t", index=False)
 balanced_df.to_csv(allocation_file,index=False,sep="\t")
-balanced_df[['Sample_ID','Subsample_ID','Forward','Reverse','Allocated_Bases','Sample_Type']].to_csv(sys.stdout, index=False, header=False)
+balanced_df['Output_Dir'] = os.path.abspath(args.output)
+balanced_df[['Sample_ID','Subsample_ID','Forward','Reverse','Allocated_Bases','Sample_Type','Output_Dir']].to_csv(sys.stdout, index=False, header=False)
