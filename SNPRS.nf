@@ -153,15 +153,14 @@ if(check_nonos()){
     mapping_directory = file("${snprs_directory}/Mapping")
     joined_directory = file("${snprs_directory}/Joined")
     snp_group_directory = file("${snprs_directory}/SNP_Groups")
-    sra_directory = file("${snprs_directory}/SRA_Reads")
 
     params.final_snprs_directory = snprs_directory
-    params.final_genome_directory = genome_directory
-    params.final_mapping_directory = mapping_directory
-    params.final_joined_directory = joined_directory
-    params.final_snp_directory = sra_directory
-    params.final_sra_directory = sra_directory
-    params.final_classified_directory = sra_directory
+    params.final_genome_directory = snprs_directory
+    params.final_mapping_directory = snprs_directory
+    params.final_joined_directory = snprs_directory
+    params.final_snp_directory = snprs_directory
+    params.final_sra_directory = snprs_directory
+    params.final_classified_directory = snprs_directory
 
 }
 
@@ -173,7 +172,6 @@ include {checkGenomeDir} from "./subworkflows/prepare_genome/main.nf"
 
 include {fetchBAM} from "./subworkflows/mapping/main.nf"
 include {fetchMapReads} from "./subworkflows/mapping/main.nf"
-include {fetchSRAReads} from "./subworkflows/mapping/main.nf"
 include {mapReads} from "./subworkflows/mapping/main.nf"
 
 include {bamToParquet} from "./subworkflows/convert_bam/main.nf"
@@ -217,32 +215,40 @@ workflow{
         if(!params.no_ref){
             if(params.pg_reads){
                 pg_read_data = file(params.pg_reads)
-                genome_info = assembleGenome(pg_read_data,genome_directory,genome_name) | first
-            }  else if(params.fasta){     
+                genome_info = assembleGenome(pg_read_data,"${genome_directory}",genome_name) | first
+            } else if(params.fasta){     
                 fasta_file = file(params.fasta) 
-                genome_info = useFASTA(fasta_file,genome_directory,genome_name) | first
+                genome_info = useFASTA(fasta_file,"${genome_directory}",genome_name) | first
             } else{
-                genome_info = checkGenomeDir(genome_directory) | first
+                genome_info = checkGenomeDir("${genome_directory}") | first
             }
         }
 
         ///////////////////////////////////// FETCH RAW PARQUETS /////////////////////////////////////////
 
         new_parquet_data = Channel.empty()
-        
-        if(params.bam_files || params.map_reads || params.map_sra){
-    
-            // Check for new read data to be mapped
-            map_read_data = (params.map_reads) ? fetchMapReads(params.map_reads) : Channel.empty()
-            sra_read_data = (params.map_sra) ? fetchSRAReads(params.map_sra): Channel.empty()
+        existing_bam_data = Channel.empty()
+
+        if(params.bam_files || params.map_reads){
             
+            if(params.bam_files){
+                bam_file = file(params.bam_files)
+                existing_bam_data = fetchBAM(bam_file)
+            }
+
+            // Check for new read data to be mapped
+            map_read_data = Channel.empty()
+            if(params.map_reads){
+                map_file = file(params.map_reads)
+                map_read_data = fetchMapReads(map_file)
+            }
+                      
             // Map reads
-            uncollected_bam_data = map_read_data.concat(sra_read_data).combine(genome_info).map{it->tuple(it[0],it[1],it[2],it[5])} | mapReads
+            uncollected_bam_data = map_read_data.combine(genome_info).map{it->tuple(it[0],it[1],it[2],"${it[5]}")} | mapReads
             new_bam_data = (params.local) ?  uncollected_bam_data | collect | flatten | collate(2) : uncollected_bam_data
             
             // Convert to parquet
-            existing_bam_data = (params.bam_files) ? fetchBAM(params.bam_files) : Channel.empty()
-            new_parquet_data = existing_bam_data.concat(new_bam_data).combine(genome_info).map{it->tuple(it[0],it[1],it[4])} | bamToParquet
+            new_parquet_data = new_bam_data.concat(existing_bam_data).combine(genome_info).map{it->tuple(it[0],it[1],it[4])} | bamToParquet
         }
         
         existing_parquet_data = (params.raw_parquets) ? fetchRawParquet(params.raw_parquets) : Channel.empty()
