@@ -1,32 +1,12 @@
 #! /usr/bin/env nextflow
 nextflow.enable.dsl=2
 
-// Logging functions
-def log(log_file,message) {
-    log_file.withWriterAppend { writer ->
-        writer.writeLine("${message}")
-    }
-}
-
-def tab_log(log_file,message) {
-    log_file.withWriterAppend { writer ->
-        writer.writeLine("\t- ${message}")
-    }
-}
-
-def date_log(log_file,message) {
-    def timestamp = new java.text.SimpleDateFormat('yyyy-MM-dd HH:mm:ss').format(new java.util.Date())
-    log_file.withWriterAppend { writer ->
-        writer.writeLine("[${timestamp}] ${message}")
-    }
-}
-
 def validate_dir(path, flag) {
-    if (!path.isDirectory()) error "${path} provided by --${flag} does not exist"
+    if (!file(path).isDirectory()) error "${path} provided by --${flag} does not exist"
 }
 
 def validate_file(path, flag) {
-    if (!path.exists()) error "${path} provided by --${flag} does not exist"
+    if (!file(path).exists()) error "${path} provided by --${flag} does not exist"
 }
 
 def check_nonos(){
@@ -85,15 +65,13 @@ def check_nonos(){
 }
 
 def cmd_args = workflow.commandLine
+
 def snprs_directory 
-def log_directory
-def log_file 
 def genome_directory
 def genome_name
 def mapping_directory
 def joined_directory
 def snp_group_directory
-def sra_directory
 
 // SNPRS Main Script
 // Params are read in from command line or from nextflow.config and/or conf/profiles.config
@@ -104,35 +82,11 @@ timestamp = "${params.timestamp}"
 
 if(check_nonos()){
 
-
     snprs_directory = file(params.out)
-    
-    if(snprs_directory.isDirectory()){
-        new_dir = false
-    } else{
+    if(!snprs_directory.isDirectory()){
         parent_dir = snprs_directory.getParent()
         validate_dir(parent_dir,"out")
         snprs_directory.mkdirs()
-        new_dir = true 
-    }
-
-    // Log File
-    log_directory = file("${snprs_directory}/Run_Logs")
-    
-    if(!log_directory.isDirectory()){
-        log_directory.mkdirs()
-    }
-
-    log_file = file("${log_directory}/SNPRS_Log_${timestamp}.txt")        
-    
-    log(log_file,"SNPRS Log File")
-    log(log_file,"${new java.text.SimpleDateFormat('yyyy-MM-dd HH:mm:ss').format(new java.util.Date())}\n")
-    log(log_file,"Command: ${cmd_args}\n")
-
-    if(new_dir){
-        tab_log(log_file,"Created output directory: ${snprs_directory}")
-    } else{
-        tab_log(log_file,"Found output directory: ${snprs_directory}")
     }
 
     // Genome Information
@@ -149,17 +103,19 @@ if(check_nonos()){
         validate_file(fasta_file,"fasta")
         genome_name = fasta_file.getBaseName().replaceAll(/\.f(ast[an]?)(\.gz)?$/, '')
     } 
-
-    mapping_directory = file("${snprs_directory}/Mapping")
-    joined_directory = file("${snprs_directory}/Joined")
-    snp_group_directory = file("${snprs_directory}/SNP_Groups")
+    
+    // Get strings to full paths
+    snprs_directory = snprs_directory.toString()
+    genome_directory = genome_directory.toString()
+    mapping_directory = file("${snprs_directory}/Mapping").toString()
+    joined_directory = file("${snprs_directory}/Joined").toString()
+    snp_group_directory = file("${snprs_directory}/SNP_Groups").toString()
 
     params.final_snprs_directory = snprs_directory
     params.final_genome_directory = snprs_directory
     params.final_mapping_directory = snprs_directory
     params.final_joined_directory = snprs_directory
     params.final_snp_directory = snprs_directory
-    params.final_sra_directory = snprs_directory
     params.final_classified_directory = snprs_directory
 
 }
@@ -207,63 +163,52 @@ workflow{
 
         ///////////////////////////////////////// MAIN WORKFLOW ////////////////////////////////////////////
 
+        // File-ize inputs
+        pg_read_data = (params.pg_reads) ? "${file(params.pg_reads)}" : ""
+        fasta_file = (params.fasta) ? "${file(params.fasta)}" : ""
+        bam_file = (params.bam_files) ? "${file(params.bam_files)}" : ""
+        map_file = (params.map_reads) ? "${file(params.map_reads)}" : ""
+        raw_parquet_file = (params.raw_parquets) ? "${file(params.raw_parquets)}" : ""
+        called_base_file = (params.called_bases) ? "${file(params.called_bases)}" : ""
 
         ///////////////////////////////////////// FETCH GENOME ////////////////////////////////////////////
 
         genome_info = Channel.empty()
-
         if(!params.no_ref){
             if(params.pg_reads){
-                pg_read_data = file(params.pg_reads)
-                genome_info = assembleGenome(pg_read_data,"${genome_directory}",genome_name) | first
+                genome_info = assembleGenome(pg_read_data,genome_directory,genome_name) | first
             } else if(params.fasta){     
-                fasta_file = file(params.fasta) 
-                genome_info = useFASTA(fasta_file,"${genome_directory}",genome_name) | first
+                genome_info = useFASTA(fasta_file,genome_directory,genome_name) | first
             } else{
-                genome_info = checkGenomeDir("${genome_directory}") | first
+                genome_info = checkGenomeDir(genome_directory) | first
             }
         }
 
-        ///////////////////////////////////// FETCH RAW PARQUETS /////////////////////////////////////////
+        ///////////////////////////////// GENERATE/FETCH RAW PARQUETS /////////////////////////////////////
 
-        new_parquet_data = Channel.empty()
-        existing_bam_data = Channel.empty()
+        existing_bam_data = (params.bam_files) ? fetchBAM(bam_file) : Channel.empty()
+        existing_parquet_data = (params.raw_parquets) ? fetchRawParquet(raw_parquet_file) : Channel.empty()
 
-        if(params.bam_files || params.map_reads){
-            
-            if(params.bam_files){
-                bam_file = file(params.bam_files)
-                existing_bam_data = fetchBAM(bam_file)
-            }
-
-            // Check for new read data to be mapped
-            map_read_data = Channel.empty()
-            if(params.map_reads){
-                map_file = file(params.map_reads)
-                map_read_data = fetchMapReads(map_file)
-            }
-                      
-            // Map reads
-            uncollected_bam_data = map_read_data.combine(genome_info).map{it->tuple(it[0],it[1],it[2],"${it[5]}")} | mapReads
-            new_bam_data = (params.local) ?  uncollected_bam_data | collect | flatten | collate(2) : uncollected_bam_data
-            
-            // Convert to parquet
-            new_parquet_data = new_bam_data.concat(existing_bam_data).combine(genome_info).map{it->tuple(it[0],it[1],it[4])} | bamToParquet
-        }
+        mapped_data = (params.map_reads) ? fetchMapReads(map_file).combine(genome_info).map{it->tuple(it[0],it[1],it[2],it[5])} | mapReads : Channel.empty()
+        mapped_data = (params.local) ? mapped_data | collect | flatten | collate(2) : mapped_data
         
-        existing_parquet_data = (params.raw_parquets) ? fetchRawParquet(params.raw_parquets) : Channel.empty()
-        raw_parquet_data = (params.local) ? existing_parquet_data.concat(new_parquet_data) | collect | flatten | collate(2) : new_parquet_data.concat(existing_parquet_data) 
+        new_parquet_data = mapped_data.concat(existing_bam_data).combine(genome_info).map{it->tuple(it[0],it[1],it[4])} | bamToParquet
+        new_parquet_data = (params.local) ? new_parquet_data | collect | flatten | collate(2) : new_parquet_data
+
+        raw_parquet_data = new_parquet_data.concat(existing_parquet_data) 
 
         //////////////////////////////////////// CALL BASES ///////////////////////////////////////////////
 
-        existing_called_base_data = (params.called_bases) ? fetchCalledBases(params.called_bases) : Channel.empty()
-        new_called_base_data = Channel.empty()
-        
-        if(params.call){
-            new_called_base_data = raw_parquet_data | callBases
-        }
+        existing_called_base_data = (params.called_bases) ? fetchCalledBases(called_base_file) : Channel.empty()
+        new_called_base_data = (params.ploidy) ? callBases(raw_parquet_data) : Channel.empty()
+        called_bases_data = new_called_base_data.concat(existing_called_base_data) | collect | flatten | collate(2)
 
-        called_bases_data = existing_called_base_data.concat(new_called_base_data) | collect | flatten | collate(2)
+
+
+
+
+
+
 
         ///////////////////////////////////// JOIN CALLED BASES ///////////////////////////////////////////
 

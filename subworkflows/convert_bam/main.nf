@@ -1,9 +1,14 @@
 #! /usr/bin/env nextflow
 nextflow.enable.dsl=2
 
-cpu = params.cpus as Integer
-sample_cpu = (params.sample_cpus) ? params.sample_cpus as Integer : cpu
-mapping_directory = file(params.final_mapping_directory)
+def cpu = params.cpus as Integer
+def sample_cpu = (params.sample_cpus) ? params.sample_cpus as Integer : cpu
+def mapping_directory = file("${params.out}/Mapping")
+def raw_parquet_directory = file("${mapping_directory}/Raw_Parquets")
+
+def mapq = params.mapq as Integer
+def baseq = params.baseq as Integer
+def adj_coef = params.adj_coef as Integer
 
 ///// Convert BAM files to Parquet /////
 workflow bamToParquet{
@@ -15,21 +20,7 @@ workflow bamToParquet{
     raw_parquet_data
 
     main:
-    pre_parquet_data = BAM_TO_PARQUET(convert_data) | splitCsv | collect | flatten | collate(2)
-    raw_parquet_data = pre_parquet_data | checkStop | collect | flatten | collate(2)
-}
-
-workflow checkStop{
-    take:
-    pre_parquet_data
-
-    emit:
-    raw_parquet_data
-
-    main:
-
-    raw_parquet_data = (params.map) ? Channel.empty() : pre_parquet_data
-
+    raw_parquet_data = BAM_TO_PARQUET(convert_data) | splitCsv
 }
 
 process BAM_TO_PARQUET{
@@ -46,16 +37,11 @@ process BAM_TO_PARQUET{
 
     script:
 
-    def bam_convert_script = file("${projectDir}/bin/bam2parquet.py")
+    bam_convert_script = file("${projectDir}/bin/bam2parquet.py")
 
-    def raw_parquet_directory = file("${mapping_directory}/Raw_Parquets")
-    def output_file = file("${raw_parquet_directory}/${sample_id}_Raw.parquet")
+    output_file = file("${raw_parquet_directory}/${sample_id}_Raw.parquet")
     
-    def mapq = params.mapq as Integer
-    def baseq = params.baseq as Integer
-    def adj_coef = params.adj_coef as Integer
-
-    def delete_cmd = (params.overwrite)
+    delete_cmd = (params.overwrite)
     ? "rm -f $output_file"
     : """
 if [ -e "$output_file" ] ; then
@@ -95,8 +81,8 @@ process FETCH_RAW_PARQUET{
 
     script:
 
-    def fetch_raw_parquet_script = file("${projectDir}/bin/fetchRawParquet.py")
-    def full_parquet = file("${input_raw_parquet}")
+    fetch_raw_parquet_script = file("${projectDir}/bin/fetchRawParquet.py")
+    full_parquet = file("${input_raw_parquet}")
     """
     python ${fetch_raw_parquet_script} -p ${full_parquet}
     """

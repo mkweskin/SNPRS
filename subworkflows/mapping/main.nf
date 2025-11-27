@@ -60,14 +60,14 @@ workflow mapReads{
   
     reference_fasta = mapping_data
     .first()
-    .map{it->it[3]}
+    .map{it->it[3].toString()}
 
     bbmap_ref = (bbmap_dir.isDirectory()) 
-    ? bbmap_dir 
-    : BBMAP_INDEX(reference_fasta) | collect | map{it->it[0]}
+    ? bbmap_dir.toString()
+    : BBMAP_INDEX(reference_fasta) | collect | map{it->it[0].toString()}
        
     bam_data = mapping_data
-    .map{it->tuple(it[0],it[1],it[2],"${bbmap_ref}")}
+    .map{it->tuple(it[0],it[1],it[2],bbmap_ref)}
     | MAP_READS 
     | splitCsv
 }
@@ -78,15 +78,13 @@ process BBMAP_INDEX{
     cpus cpu
 
     input:
-    val(genome_file)
+    val(fasta_file)
 
     output:
     stdout
 
     script:
-
-    fasta_file = file("${genome_file}")
-    
+  
     """
     TOTAL_MEM_MB=\$(free -m | awk '/^Mem:/{print \$2}')
     XMX_MB=\$((TOTAL_MEM_MB * 70 / 100))

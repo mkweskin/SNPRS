@@ -302,13 +302,6 @@ process PROCESS_RAY{
     """
 }
 
-
-
-
-
-
-
-
 ///// Get genome based on FASTA, and index if necessary /////
 workflow useFASTA{
 

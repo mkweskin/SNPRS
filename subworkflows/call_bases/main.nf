@@ -1,10 +1,15 @@
 #! /usr/bin/env nextflow
 nextflow.enable.dsl=2
 
-cpu = params.cpus as Integer
-sample_cpu = (params.sample_cpus) ? params.sample_cpus as Integer : cpu
-mapping_directory = file(params.final_mapping_directory)
+def cpu = params.cpus as Integer
+def sample_cpu = (params.sample_cpus) ? params.sample_cpus as Integer : cpu
+def mapping_directory = file("${params.out}/Mapping")
+def called_directory = file("${mapping_directory}/Base_Calls")
 
+def min_depth = params.min_depth as Integer
+def allele_cov = params.min_allele as Integer
+def min_freq = params.min_freq as Float
+def ploidy = (params.ploidy) ? params.ploidy as Integer : 0
 
 ///// Call bases from raw parquets /////
 workflow callBases{
@@ -17,22 +22,9 @@ workflow callBases{
 
     main:
 
-    pre_base_call_data = CALL_BASES(raw_parquet_data) | splitCsv | collect | flatten | collate(2)
-    base_call_data = pre_base_call_data | checkStop | collect | flatten | collate(2)
+    base_call_data = CALL_BASES(raw_parquet_data) | splitCsv
 }
 
-workflow checkStop{
-    take:
-    pre_base_call_data
-
-    emit:
-    base_call_data
-
-    main:
-
-    base_call_data = (params.call) ? Channel.empty() : pre_base_call_data
-
-}
 
 process CALL_BASES{
     
@@ -48,30 +40,18 @@ process CALL_BASES{
 
     script:
 
-    def base_call_script = file("${projectDir}/bin/callBases.py")
-    def output_directory = file("${mapping_directory}/Base_Calls")
-    def output_file = file("${output_directory}/${sample_id}_Called.parquet")
+    base_call_script = file("${projectDir}/bin/callBases.py")
+    output_file = file("${called_directory}/${sample_id}_Called.parquet")
 
-    def delete_cmd = (params.overwrite) ? "rm -rf $output_file" 
+    delete_cmd = (params.overwrite) ? "rm -rf $output_file" 
     : """
 if [ -e "$output_file" ] ; then
     echo "❌ Error: ${output_file} file already exists — use --overwrite to replace." >&2
     exit 1
 fi"""
 
-    def min_depth = params.min_depth as Integer
-    def allele_cov = params.min_allele as Integer
-    def min_freq = params.min_freq as Float
-    def ploidy
-    
-    if(!params.ploidy){
-        error "Cannot call bases without --ploidy set"
-    } else{
-        ploidy = params.ploidy as Integer
-    } 
-
     """
-    mkdir -p ${output_directory} &&
+    mkdir -p ${called_directory} &&
     $delete_cmd &&
     python ${base_call_script} -p ${sample_parquet} -o ${output_file} -min_depth ${min_depth} -min_support ${allele_cov} -min_freq ${min_freq} -max_alleles ${ploidy} &&
     echo -n "${sample_id},${output_file}"
@@ -102,9 +82,9 @@ process FETCH_CALLED_BASES{
 
     script:
 
-    def fetch_called_bases_script = file("${projectDir}/bin/fetchCalledBases.py")
-    def full_parquet = file("${input_called_bases}")
+    fetch_called_bases_script = file("${projectDir}/bin/fetchCalledBases.py")
+
     """
-    python ${fetch_called_bases_script} -p ${full_parquet}
+    python ${fetch_called_bases_script} -p ${input_called_bases}
     """
 }
