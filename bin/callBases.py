@@ -27,7 +27,6 @@ def parse_args():
     parser.add_argument('-min_support',dest="allele_cov", type=int,default=2, help="Minimum read depth to consider an allele [Default: 2]")
     parser.add_argument('-min_freq',dest="min_freq", type=float,default=0.15, help="Minimum allele frequency to consider an alternative allele [Default: 0.15]")
     parser.add_argument('-max_alleles',dest="max_alleles", type=int,default=2, help="Maximum number of alleles above min_freq allowed [Default: 2 (diploid)]")
-    # ADD ARG TO INCLUDE PLOIDY FAIL
     return parser.parse_args()
 
 def make_degen_dict():
@@ -129,30 +128,47 @@ base_df_lazy = (
     )
 )
 
-ploidy_fail_positions = (
-    base_df_lazy
-    .filter(
-        (pl.col("status").is_in(["Pass", "Deletion"]))
-    )
-    .group_by(["contig_index", "contig_position"])
-    .agg(pl.len().alias("allele_count"))
-    .filter(pl.col("allele_count") > max_alleles)
-    .select(["contig_index", "contig_position"])
-    .unique()
-)
+if max_alleles == 0:
+    
+    ploidy_fail_positions = pl.DataFrame(
+        {
+            "contig_index": pl.Series([], pl.Int64),
+            "contig_position": pl.Series([], pl.Int64),
+        }
+    ).lazy()
+    
+    ploidy_fail_df = pl.DataFrame({
+        "contig_index": pl.Series([], pl.Int64),
+        "contig_position": pl.Series([], pl.Int64),
+        "final_base": pl.Series([], pl.Utf8),
+        "type": pl.Series([], pl.Int64),
+    })
 
-ploidy_fail_df = (
-    ploidy_fail_positions
-    .with_columns(
-        pl.lit("N").alias('final_base'),
-        pl.lit(6).alias('type'))
-        .cast({
-            "contig_index": pl.Int64,
-            "contig_position": pl.Int64,
-            "final_base": pl.Utf8,
-            "type": pl.Int64
-        })
-).collect()
+else:
+    ploidy_fail_positions = (
+        base_df_lazy
+        .filter(
+            (pl.col("status").is_in(["Pass", "Deletion"]))
+        )
+        .group_by(["contig_index", "contig_position"])
+        .agg(pl.len().alias("allele_count"))
+        .filter(pl.col("allele_count") > max_alleles)
+        .select(["contig_index", "contig_position"])
+        .unique()
+    )
+
+    ploidy_fail_df = (
+        ploidy_fail_positions
+        .with_columns(
+            pl.lit("N").alias('final_base'),
+            pl.lit(6).alias('type'))
+            .cast({
+                "contig_index": pl.Int64,
+                "contig_position": pl.Int64,
+                "final_base": pl.Utf8,
+                "type": pl.Int64
+            })
+    ).collect()
 
 
 base_df = (

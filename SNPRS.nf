@@ -241,27 +241,10 @@ workflow{
         } else if(params.tree){
             tree_file = filtered_data.combine(alignment_file) | generateTree | collect | flatten | collate(1)
         }
-
-        //////////////////////////////////////// GET SPLITS ///////////////////////////////////////////////
         
-        if(params.split_file){
-            split_file = Channel.fromPath(params.split_file) 
-        } else if(params.split){
-            split_file = tree_file | makeSplitTable | collect | flatten | collate(1)
-        }
-
-        //////////////////////////////////////// GET GROUPS ///////////////////////////////////////////////
-
-        if(params.group_file){
-            group_file = Channel.fromPath(params.group_file) 
-        } else if(params.split){
-            group_file = tree_file.combine(split_file) | makeSNPGroups | collect | flatten | collate(1)
-        }
-
         //////////////////////////////////////// GET SNPS //////////////////////////////////////////////////
-        if(params.make_snps){
-            snp_data = filtered_data.combine(tree_file).combine(group_file).map{it->tuple(it[0],it[1],snp_id,snp_directory,it[2],it[3])} | generateSNPs | collect | flatten | collate(2)
-        }
+
+
     }
 
 }   
