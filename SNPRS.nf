@@ -204,12 +204,6 @@ workflow{
         called_bases_data = new_called_base_data.concat(existing_called_base_data) | collect | flatten | collate(2)
 
 
-
-
-
-
-
-
         ///////////////////////////////////// JOIN CALLED BASES ///////////////////////////////////////////
 
         if(params.joined){
@@ -217,6 +211,19 @@ workflow{
         } else if(params.join){
             joined_data = joinCalledBases(called_bases_data)
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         ///////////////////////////////////// FILTER JOINED DATA //////////////////////////////////////////
 
