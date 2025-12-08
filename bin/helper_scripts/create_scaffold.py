@@ -25,42 +25,48 @@ def fetch_base_parquets(file_path):
         if not os.path.exists(path):
             print(f"Error: Parquet file '{path}' not found.")
             sys.exit(1)
-    if len(paths) < 2:
-        print("Error: You must provide at least two called base parquet files.")
+    
+    if len(paths) < 1:
+        print("Error: You must provide at least one called base parquet files.")
         sys.exit(1)
 
     return [os.path.abspath(path) for path in paths]
 
 def get_scaffold_sites(temp_directory,sorted_parquet_paths):
     
+    valid_sites = [0, 1, 3, 4, 6]
+    
     tmp_file = os.path.join(temp_directory, "Temp.parquet")
     stage_file = os.path.join(temp_directory, "Stage.parquet")
-
-    valid_sites = [0, 1, 3, 4, 6]
 
     (
         pl.scan_parquet(sorted_parquet_paths[0])
         .filter(pl.col("type").is_in(valid_sites))
         .select(["contig_index", "contig_position"])
         .unique()
-        .sink_parquet(tmp_file)
+        .sort(['contig_index','contig_position'])
+        .sink_parquet(tmp_file,compression = "snappy")
     )
 
-    for path in sorted_parquet_paths[1:]:
-        lazy_scaffold = pl.scan_parquet(tmp_file)
-        lazy_new = (
-            pl.scan_parquet(path)
-            .filter(pl.col("type").is_in(valid_sites))
-            .select(["contig_index", "contig_position"])
-        )
+    if len(sorted_parquet_paths) > 1:
+        
+        for path in sorted_parquet_paths[1:]:
+            
+            lazy_scaffold = pl.scan_parquet(tmp_file)
+            
+            lazy_new = (
+                pl.scan_parquet(path)
+                .filter(pl.col("type").is_in(valid_sites))
+                .select(["contig_index", "contig_position"])
+            )
 
-        (
-            pl.concat([lazy_scaffold, lazy_new])
-            .unique()
-            .sink_parquet(stage_file)
-        )
+            (
+                pl.concat([lazy_scaffold, lazy_new])
+                .unique()
+                .sink_parquet(stage_file)
+            )
 
-        shutil.move(stage_file, tmp_file)
+            shutil.move(stage_file, tmp_file)
 
     return tmp_file
 
@@ -116,7 +122,12 @@ sorted_samples, sorted_parquet_paths = zip(*sorted_path_sample_pairs)
 
 try:
     temp_parquet = get_scaffold_sites(temp_directory,sorted_parquet_paths)
-    save_scaffold_parquet(output_parquet, temp_parquet)
+    
+    if len(sorted_parquet_paths) > 1:
+        save_scaffold_parquet(output_parquet, temp_parquet)
+    else:
+        shutil.move(temp_parquet, output_parquet)
+
 finally:
     shutil.rmtree(temp_directory)
 

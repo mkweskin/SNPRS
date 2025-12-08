@@ -21,7 +21,7 @@ elif os.path.isfile(called_parquet_data):
         called_parquet_files = [os.path.abspath(line.strip()) for line in f if line.strip() and line.strip().endswith("_Called.parquet")]
 
 if len(called_parquet_files) == 0:
-    sys.exit(f"No BAM files detected via {called_parquet_data}")
+    sys.exit(f"No parquet files detected via {called_parquet_data}")
 
 called_parquet_tuples = [(os.path.splitext(os.path.basename(called_parquet_file))[0], called_parquet_file) for called_parquet_file in called_parquet_files]
 

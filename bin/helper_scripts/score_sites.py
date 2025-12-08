@@ -14,7 +14,6 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Create scaffold parquet from called base files")
     
     parser.add_argument("--scaffold", dest="scaffold_file", type=str, required=True,help="Path to scaffold parquet")
-    parser.add_argument("--bases", dest="base_file", type=str, required=True,help="Path to base parquet")
     parser.add_argument("--out_dir", dest="output_directory", type=str, default=None,help="Path to output Parquet files [Default: cwd]")
     parser.add_argument("--join_id", dest="join_id", type=str, required=True,help="Prefix for output files")
     parser.add_argument("--mem_mode", dest="mem_mode", action = "store_true", help="Split chunks up 10X smaller than default")
@@ -172,11 +171,7 @@ scaffold_file = os.path.abspath(args.scaffold_file)
 if not os.path.exists(scaffold_file):
     sys.exit(f"{scaffold_file} (--scaffold_file) does not exist")
 
-# Base file
-base_file = os.path.abspath(args.base_file)
-if not os.path.exists(scaffold_file):
-    sys.exit(f"{scaffold_file} (--base_file) does not exist")    
-
+output_base_file = os.path.join(output_directory,f"{join_id}_Bases.parquet")
 output_site_file = os.path.join(output_directory,f"{join_id}_Sites.parquet")
 output_code_file = os.path.join(output_directory,f"{join_id}_Codes.parquet")
 
