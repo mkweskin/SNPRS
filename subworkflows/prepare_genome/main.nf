@@ -37,7 +37,7 @@ workflow assembleGenome{
     input_pangenome_reads = FETCH_PG_READS(pg_reads,genome_directory,genome_name) | splitCsv
 
     // Get base counts
-    base_count_file = (params.manual_counts) ? Channel.fromPath(params.manual_counts) | collect | map { it[0] } : input_pangenome_reads.map{it-> tuple(it[0],it[3],it[4],genome_directory,genome_name)} | COUNT_BASES  | collect | map { it[0] }
+    base_count_file = (params.manual_counts) ? Channel.fromPath(params.manual_counts) | collect | map { it[0] } : input_pangenome_reads.map{it-> tuple(it[0],it[3],it[4],genome_directory,genome_name)} | COUNT_BASES | splitCsv | SAVE_BASE_COUNTS  | collect | map { it[0] }
 
     // Subset or link reads for pangenome assembly
     subset_guide = CALCULATE_SUBSETS(base_count_file,genome_directory,genome_name) | splitCsv
@@ -117,7 +117,6 @@ process COUNT_BASES {
     script:
 
     genome_prep_directory = file("${genome_dir}/Prep_${genome_name}")
-    base_count_file = file("${genome_prep_directory}/Read_Counts.csv")
     
     stats_cmd = reverse_read 
     ? "seqkit stats -j $count_cpu -a -T ${forward_read} ${reverse_read}" 
@@ -127,8 +126,28 @@ process COUNT_BASES {
     output=\$(${stats_cmd})
     read_count=\$(echo "\$output" | awk -F'\\t' 'NR>1 {sum+=\$4} END{print sum}')
     base_count=\$(echo "\$output" | awk -F'\\t' 'NR>1 {sum+=\$5} END{print sum}')
-    echo -e "${sample_id},\$read_count,\$base_count,${forward_read},${reverse_read}" >> ${base_count_file}
-    echo -n ${base_count_file}
+    echo -n "${sample_id},\$read_count,\$base_count,${forward_read},${reverse_read},${genome_prep_directory}"
+    """
+}
+
+process SAVE_BASE_COUNTS{
+
+    executor = 'local'
+    cpus 1
+    
+    input:
+    tuple val(sample_id),val(read_count),val(base_count),val(forward_read),val(reverse_read),val(genome_prep_directory)
+
+    output:
+    stdout
+
+    script:
+
+    base_count_file = file("${genome_prep_directory}/Read_Counts.csv")
+
+    """
+    echo "${sample_id},${read_count},${base_count},${forward_read},${reverse_read}" >> ${base_count_file}
+    echo -n "${base_count_file}"
     """
 }
 
