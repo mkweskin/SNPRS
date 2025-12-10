@@ -209,14 +209,14 @@ process FETCH_JOIN{
 
     script:
 
-    def join_directory = file(join_dir)
+    join_path = file(join_dir)
 
-    if(!join_directory.isDirectory()){
-        error "${join_directory} does not exist..."
+    if(!join_path.isDirectory()){
+        error "${join_path} does not exist..."
     }
 
     """
-    cd $join_directory
+    cd $join_path
 
     suffixes=(
       "_Scaffold.parquet"
@@ -231,7 +231,7 @@ process FETCH_JOIN{
     for suf in "\${suffixes[@]}"; do
         files=( *"\$suf" )
         if [ \${#files[@]} -ne 1 ] || [ ! -f "\${files[0]}" ]; then
-            echo "ERROR: Expected exactly one file ending with \$suf in $join_dir" >&2
+            echo "ERROR: Expected exactly one file ending with \$suf in $join_path" >&2
             exit 1
         fi
         fname="\${files[0]}"
@@ -242,11 +242,11 @@ process FETCH_JOIN{
     first="\${prefixes[0]}"
     for p in "\${prefixes[@]}"; do
         if [ "\$p" != "\$first" ]; then
-            echo "ERROR: Prefix mismatch in $join_dir" >&2
+            echo "ERROR: Prefix mismatch in $join_path" >&2
             exit 1
         fi
     done
 
-    echo -n "\$first,$join_directory"    
+    echo -n "\$first,$join_path"    
     """
 }
