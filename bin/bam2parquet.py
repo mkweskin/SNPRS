@@ -212,10 +212,10 @@ def get_arrow(temp_file,contig_map,metadata):
         ])
         .select(["contig_index", "contig_position", "base", "depth", "frequency"])
         .with_columns([
-            pl.col("contig_index").cast(pl.Int64),
-            pl.col("contig_position").cast(pl.Int64),
-            pl.col("depth").cast(pl.Int64),
-            pl.col("frequency").cast(pl.Float64),
+            pl.col("contig_index").cast(pl.Int32),
+            pl.col("contig_position").cast(pl.Int32),
+            pl.col("depth").cast(pl.Int32),
+            pl.col("frequency").cast(pl.Float32),
             pl.col("base").cast(pl.Utf8)
         ])
         .sort(by=["contig_index", "contig_position", "frequency"],descending=[False, False, True])
