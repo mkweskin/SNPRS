@@ -13,72 +13,70 @@ lock = Lock()
 
 def save_sample_parquet(called_base_parquet, scaffold_parquet, sample_parquet, sample_id,summary_file):
 
-    valid_sites = [0, 1, 3, 4, 6]
     col = sample_id
 
     lazy_scaffold = pl.scan_parquet(scaffold_parquet)
-    lazy_called = pl.scan_parquet(called_base_parquet).filter(pl.col("type").is_in(valid_sites))
-    called_meta = pq.ParquetFile(called_base_parquet).schema_arrow.metadata
+    lazy_called = pl.scan_parquet(called_base_parquet)
+    lazy_called_sites = lazy_called.select(['contig_index','contig_position'])
 
-    min_allele_cov = called_meta.get("min_allele_coverage")
-    min_allele_frequency = called_meta.get("min_allele_frequency")
-    min_depth = called_meta.get("min_read_coverage")
-
-    lazy_called_sites = lazy_called.select(['contig_index','contig_position']).unique()
+    fixed_codes = pl.Series([1, 2, 3, 4, 16])
 
     missing_df = (
         lazy_scaffold
         .join(lazy_called_sites, on=['contig_index','contig_position'], how='anti')
-        .with_columns([pl.lit("?").alias(sample_id), pl.lit(5).alias("type")])
+        .with_columns([pl.lit(0).alias(sample_id)])
+        .select(['contig_index','contig_position',sample_id])
+        .cast({ "contig_index": pl.Int32, "contig_position": pl.Int32, sample_id: pl.Int8 })
     )
 
-    # Called bases
-    called_rows = (
+    called_df = (
         lazy_scaffold
         .join(lazy_called, on=['contig_index','contig_position'])
-        .select(['contig_index','contig_position','final_base','type'])
-        .rename({"final_base": sample_id})
-        .with_columns(pl.col("type").cast(pl.Int32))
+        .select(['contig_index','contig_position','base_code'])
+        .rename({"base_code": sample_id})
+        .cast({ "contig_index": pl.Int32, "contig_position": pl.Int32, sample_id: pl.Int8 })
     )
 
-    result = (
-        pl.concat([called_rows, missing_df])
-        .sort(['contig_index','contig_position'])
-        .collect(streaming=True)
-    )
-
-    result.select([sample_id]).write_parquet(sample_parquet, compression="snappy")
-
-    type_counts = (
-        result
-        .group_by("type")
-        .len()
-        .to_dict(as_series=False)
-    )
-
-    type_dict = dict(zip(type_counts.get("type", []), type_counts.get("len", [])))
-    counts = {
-        "fixed_base": type_dict.get(0, 0),
-        "fixed_gap":  type_dict.get(1, 0),
-        "het_base":   type_dict.get(3, 0),
-        "het_gap":    type_dict.get(4, 0),
-        "uncovered":  type_dict.get(5, 0),
-        "filtered":   type_dict.get(6, 0),
-    }
+    missing_count = missing_df.select(pl.len()).collect().item()
     
+    called_count = called_df.filter(pl.col(sample_id) > 0).select(pl.len()).collect().item()
+    
+    fixed_count = (
+        called_df
+        .filter(pl.col(sample_id).is_in(fixed_codes))
+        .select(pl.len())
+        .collect()
+        .item()
+    )
+
+    ploidy_fail_count = (
+        called_df
+        .filter(pl.col(sample_id) < 0)
+        .select(pl.len())
+        .collect()
+        .item()
+    )
+
+    het_count = called_count - fixed_count
+
     if os.path.exists(summary_file):
         with lock, open(summary_file, "a", newline="") as out_f:
             writer = csv.writer(out_f, delimiter="\t")
             writer.writerow([
                 sample_id,
-                counts["fixed_base"],
-                counts["fixed_gap"],
-                counts["het_base"],
-                counts["het_gap"],
-                counts["uncovered"],
-                counts["filtered"],
+                fixed_count,
+                het_count,
+                ploidy_fail_count,
+                missing_count
             ])
 
+    (
+        pl.concat([called_df, missing_df])
+        .sort(['contig_index','contig_position'])
+        .select([sample_id])
+        .collect(streaming=True)
+        .write_parquet(sample_parquet, compression="snappy")
+    )
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Based off a scaffold parquet, get base information for a sample")
@@ -119,9 +117,13 @@ else:
 if not os.path.exists(output_directory):
     sys.exit(f"{output_directory} (--out_dir) does not exist")
 
+temp_directory = os.path.join(output_directory,f"Temp_{join_id}")
+if not os.path.exists(temp_directory):
+    os.mkdir(temp_directory)
+
 # Output files
 summary_file = os.path.join(output_directory, f"{join_id}_Site_Counts.tsv")
-sample_parquet = os.path.join(output_directory,f"Scaffolded_{sample_id}.parquet")
+sample_parquet = os.path.join(temp_directory,f"Scaffolded_{sample_id}.parquet")
 
 # endregion
 

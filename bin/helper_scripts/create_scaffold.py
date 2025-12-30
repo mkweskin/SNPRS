@@ -33,18 +33,13 @@ def fetch_base_parquets(file_path):
     return [os.path.abspath(path) for path in paths]
 
 def get_scaffold_sites(temp_directory,sorted_parquet_paths):
-    
-    valid_sites = [0, 1, 3, 4, 6]
-    
+       
     tmp_file = os.path.join(temp_directory, "Temp.parquet")
     stage_file = os.path.join(temp_directory, "Stage.parquet")
 
     (
         pl.scan_parquet(sorted_parquet_paths[0])
-        .filter(pl.col("type").is_in(valid_sites))
         .select(["contig_index", "contig_position"])
-        .unique()
-        .sort(['contig_index','contig_position'])
         .sink_parquet(tmp_file,compression = "snappy")
     )
 
@@ -56,7 +51,6 @@ def get_scaffold_sites(temp_directory,sorted_parquet_paths):
             
             lazy_new = (
                 pl.scan_parquet(path)
-                .filter(pl.col("type").is_in(valid_sites))
                 .select(["contig_index", "contig_position"])
             )
 
@@ -121,14 +115,14 @@ sorted_samples, sorted_parquet_paths = zip(*sorted_path_sample_pairs)
 # region 02: Save scaffold file
 
 try:
-    temp_parquet = get_scaffold_sites(temp_directory,sorted_parquet_paths)
-    
+    temp_parquet = get_scaffold_sites(temp_directory, sorted_parquet_paths)
+
     if len(sorted_parquet_paths) > 1:
         save_scaffold_parquet(output_parquet, temp_parquet)
     else:
         shutil.move(temp_parquet, output_parquet)
 
-finally:
-    shutil.rmtree(temp_directory)
+except Exception as e:
+    sys.exit(f"ERROR creating scaffold: {e}")
 
 # endregion

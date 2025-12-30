@@ -166,7 +166,7 @@ else:
     )
 
 
-    if max_alleles == 0:
+    if max_alleles == 5:
 
         het_df = (
             het_expanded

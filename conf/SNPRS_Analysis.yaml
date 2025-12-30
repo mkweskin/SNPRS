@@ -1,0 +1,32 @@
+name: snprs_env
+
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+
+dependencies:
+  
+  # Jupyter / analysis
+  - jupyterlab
+  - ipykernel
+  - ipywidgets
+
+  # Stats
+  - pingouin
+  - patsy
+
+  # Plotting / visualization
+  - plotnine
+  - matplotlib-venn
+  - upsetplot
+
+  # Bio / HDF5
+  - biom-format
+  - h5py
+
+
+
+
+
+

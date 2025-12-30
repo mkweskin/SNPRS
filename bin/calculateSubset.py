@@ -281,9 +281,9 @@ def balance_bases(request_df):
 
 # Parse arguments
 parser = argparse.ArgumentParser()
-parser.add_argument('-b', '--base_counts', type=str, default=None, help="Base count data in CSV (Sample_ID,Read_Count,Base_Count,Forward_Read,Reverse_Read)")
-parser.add_argument('-g', '--group_file', type=str, default=None, help="Group data in CSV (Sample_ID,Group_0,Group_1,Forward_Read,Reverse_Read)")
-parser.add_argument('-m', '--manual_counts', type=str, default=None, help="Group data in CSV (Sample_ID,Group_0,Group_1,Base_Count,Forward_Read,Reverse_Read)")
+parser.add_argument('-b', '--base_counts', type=str, default=None, help="Base count data in CSV (Sample_ID,Read_Count,Base_Count,Forward,Reverse)")
+parser.add_argument('-g', '--group_file', type=str, default=None, help="Group data in CSV (Sample_ID,Group_0,Group_1,Forward,Reverse)")
+parser.add_argument('-m', '--manual_counts', type=str, default=None, help="Group data in CSV (Sample_ID,Group_0,Group_1,Base_Count,Forward,Reverse)")
 parser.add_argument('-o', '--output', type=str, required=True, help="Output directory for subset reads")
 parser.add_argument('-s', '--genomesize', type=int, required=True, help="Genome size estimate in bp")
 parser.add_argument('-c', '--coverage', type=int, default=10, help="Desired coverage")

@@ -212,6 +212,8 @@ workflow{
         joined_data = joinFromCSV(join_csv_file)
     }
 
+    joined_data.view()
+
 
 
 

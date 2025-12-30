@@ -67,7 +67,8 @@ workflow mapReads{
     : BBMAP_INDEX(reference_fasta) | collect | map{it->it[0].toString()}
        
     bam_data = mapping_data
-    .map{it->tuple(it[0],it[1],it[2],bbmap_ref)}
+    .map{it->tuple(it[0],it[1],it[2])}
+    .combine(bbmap_ref)
     | MAP_READS 
     | splitCsv
 }

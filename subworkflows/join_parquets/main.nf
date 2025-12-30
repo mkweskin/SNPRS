@@ -28,7 +28,9 @@ workflow joinCalledBases{
     
     random_sample = called_bases_data.combine(join_info).combine(scaffold_parquet) | SCAFFOLD_SAMPLE | collect | map { it[0] }
     
-    joined_data = join_info.combine(scaffold_parquet).combine(random_sample) | SCORE_SITES | splitCsv | collect | flatten | collate(2)
+    base_parquet = join_info.combine(random_sample) | COMPILE_BASES | collect | map { it[0] }
+    
+    joined_data = join_info.combine(scaffold_parquet).combine(base_parquet) | SCORE_SITES | splitCsv | collect | flatten | collate(2)
 
 }
 
@@ -101,9 +103,9 @@ process CREATE_SCAFFOLD{
     base_call_summary = file("${joined_dir}/${joined_id}_Site_Counts.tsv")
 
     """
-    python $scaffold_script --called_bases $called_base_file --join_id $joined_id --out_dir $joined_dir &&
-    echo "Sample_ID\tFixed_Bases\tFixed_Gaps\tHet_Bases\tHet_Gap\tUncovered\tFiltered" > $base_call_summary &&
-    echo -n "$scaffold_parquet"
+    python ${scaffold_script} --called_bases ${called_base_file} --join_id ${joined_id} --out_dir ${joined_dir} &&
+    echo "Sample_ID\tFixed\tHeterozygous\tPloidy_Fail\tUncovered" > ${base_call_summary} &&
+    echo -n "${scaffold_parquet}"
     """
 }
 
@@ -122,18 +124,16 @@ process SCAFFOLD_SAMPLE{
     script:
 
     scaffold_sample_script = file("${projectDir}/bin/helper_scripts/scaffold_sample.py")
-    sample_scaffold_file = file("${joined_dir}/Scaffolded_${sample_id}.parquet")
-
-    delete_cmd = (params.overwrite) ? "rm -f $sample_scaffold_file" : ":"
+    sample_scaffold_file = file("${joined_dir}/Temp_${joined_id}/Scaffolded_${sample_id}.parquet")
 
     """
-    $delete_cmd &&
     python $scaffold_sample_script --called_bases $called_base_path --join_id $joined_id --out_dir $joined_dir --scaffold $scaffold_parquet &&
     echo -n "${sample_id}"
     """
 }
 
-process SCORE_SITES{
+process COMPILE_BASES{
+
     cpus cpu
 
     input:
@@ -144,20 +144,32 @@ process SCORE_SITES{
 
     script:
 
-    def score_site_script = file("${projectDir}/bin/helper_scripts/score_sites.py")
-
-    def base_parquet = file("${joined_dir}/${joined_id}_Bases.parquet")
-    def site_parquet = file("${joined_dir}/${joined_id}_Sites.parquet")
-    def code_parquet = file("${joined_dir}/${joined_id}_Codes.parquet")
-    def missing_tsv = file("${joined_dir}/${joined_id}_Missing.tsv")
-
-    def mem_arg = (params.mem_mode) ? "--mem_mode" : ""
-
-    def delete_cmd = (params.overwrite) ? "rm -f $site_parquet $code_parquet $missing_tsv" : ":"
+    compile_base_script = file("${projectDir}/bin/helper_scripts/compile_bases.py")
+    base_parquet_file = file("${joined_dir}/${joined_id}_Bases.parquet")
 
     """
-    $delete_cmd &&
-    python $score_site_script --out_dir $joined_dir --join_id $joined_id --scaffold $scaffold_file $mem_arg &
+    python $compile_base_script --join_id $joined_id --out_dir $joined_dir &&
+    echo -n "${base_parquet_file}"
+    """
+}
+
+process SCORE_SITES{
+    cpus cpu
+
+    input:
+    tuple val(joined_id),val(joined_dir),val(scaffold_file),val(base_file)
+
+    output:
+    stdout
+
+    script:
+
+    score_site_script = file("${projectDir}/bin/helper_scripts/score_sites.py")
+    mem_arg = (params.mem_mode) ? "--mem_mode" : ""
+
+
+    """
+    python $score_site_script --out_dir $joined_dir --join_id $joined_id --scaffold $scaffold_file --base $base_file $mem_arg &&
     echo -n "${joined_id},${joined_dir}"
     """
 }

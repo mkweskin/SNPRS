@@ -5,6 +5,8 @@ import os
 import polars as pl
 import argparse
 
+fixed_codes = pl.Series([1, 2, 3, 4, 16, 33,34,35,36,48])
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Print the header metadata from a parquet file")
     parser.add_argument("-p","--p", dest="parquet", type=str, required=True,help="Path to parquet file")
@@ -34,11 +36,11 @@ def parquet_preview(parquet_path,preview_data):
         row_count = pq.ParquetFile(parquet_path).metadata.num_rows
         print(f"\nTotal rows: {row_count}")
         head_df = lf.limit(25).collect()
-        #head_df = lf.filter((pl.col("type") == 6)).collect()
 
-        print("\nFirst 25 rows:")
-        pl.Config.set_tbl_rows(25)
+
+        pl.Config.set_tbl_rows(5)
         print(head_df)
+
 
         """
         dup_rows = (

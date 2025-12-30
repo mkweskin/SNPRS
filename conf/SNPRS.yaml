@@ -5,32 +5,51 @@ channels:
   - bioconda
   - defaults
 
-channel_priority: strict
-
 dependencies:
-  - python=3.8.1
+  
+  # Python + core utilities
+  - python>=3.9
+  - pandas
   - psutil
   - coreutils
+  - scikit-learn
+  - matplotlib
+  - polars-lts-cpu
+  - seqkit
+  - scikit-bio
+  - plotly
+  - tqdm
+  - joblib
+  - scipy
+  - seaborn
+  - statsmodels
+  - biopython
+  - pyarrow
+  - natsort
+
+  # Bioinformatics Tools
   - bedtools
   - pybedtools
   - bowtie2
   - samtools
+  - kraken2
+  - augustus
   - bbmap
-  - pandas
-  - biopython
-  - scikit-learn
-  - matplotlib
-  - polars-lts-cpu>=0.20.9
+  - sra-tools
+  - krakentools
+  - bracken
   - pysam
-  - pyarrow
   - bcftools
-  - veryfasttree=3.2.1 
-  - iqtree=2.3.6
-  - seqkit
-  - natsort
+
+  # Phylogenetic Tools
+  - veryfasttree 
+  - iqtree
   - dendropy
   - ete3
   - toytree
-  - scikit-bio
-  - plotly
-  - sra-tools
+
+
+
+
+
+
