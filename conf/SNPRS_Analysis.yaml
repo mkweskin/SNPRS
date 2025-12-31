@@ -1,4 +1,4 @@
-name: snprs_env
+name: snprs_analysis
 
 channels:
   - conda-forge
@@ -25,6 +25,37 @@ dependencies:
   - biom-format
   - h5py
 
+  # Python + core utilities
+  - python>=3.9
+  - pandas
+  - psutil
+  - coreutils
+  - scikit-learn
+  - matplotlib
+  - polars-lts-cpu
+  - seqkit
+  - scikit-bio
+  - plotly
+  - tqdm
+  - joblib
+  - scipy
+  - seaborn
+  - statsmodels
+  - biopython
+  - pyarrow
+  - natsort
+
+  # Bioinformatics Tools
+  - bedtools
+  - pybedtools
+  - krakentools
+  - pysam
+  - bcftools
+
+  # Phylogenetic Tools
+  - dendropy
+  - ete3
+  - toytree
 
 
 

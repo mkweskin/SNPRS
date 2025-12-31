@@ -28,7 +28,7 @@ workflow joinCalledBases{
     
     random_sample = called_bases_data.combine(join_info).combine(scaffold_parquet) | SCAFFOLD_SAMPLE | collect | map { it[0] }
     
-    base_parquet = join_info.combine(random_sample) | COMPILE_BASES | collect | map { it[0] }
+    base_parquet = join_info.combine(scaffold_parquet).combine(random_sample) | COMPILE_BASES | collect | map { it[0] }
     
     joined_data = join_info.combine(scaffold_parquet).combine(base_parquet) | SCORE_SITES | splitCsv | collect | flatten | collate(2)
 

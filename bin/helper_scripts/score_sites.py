@@ -175,17 +175,21 @@ if os.path.exists(output_code_file):
 row_count = pq.ParquetFile(scaffold_file).metadata.num_rows
 
 if args.mem_mode:
-    n_chunks = min(row_count, (os.cpu_count()*40))
+    max_chunks = os.cpu_count() * 40
 else:
-    n_chunks = min(row_count, (os.cpu_count()*4))
+    max_chunks = os.cpu_count() * 4
 
-chunk_size = (row_count + n_chunks - 1) // n_chunks
+n_chunks = min(max_chunks, row_count) if row_count > 0 else 1
+chunk_size = (row_count + n_chunks - 1) // n_chunks if row_count > 0 else 0
 
 jobs = []
 for i in range(n_chunks):
     start = i * chunk_size
-    stop = min((i + 1) * chunk_size, row_count)
-    jobs.append((i, start, stop,base_file,temp_directory))
+    stop = min(start + chunk_size, row_count)
+    if start >= stop:
+        continue
+
+    jobs.append((i, start, stop, base_file, temp_directory))
 
 code_list = []
 site_list = []
