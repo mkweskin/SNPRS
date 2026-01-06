@@ -63,7 +63,7 @@ workflow mapReads{
     .map{it->it[3].toString()}
 
     bbmap_ref = (bbmap_dir.isDirectory()) 
-    ? bbmap_dir.toString()
+    ? Channel.from(bbmap_dir)
     : BBMAP_INDEX(reference_fasta) | collect | map{it->it[0].toString()}
        
     bam_data = mapping_data

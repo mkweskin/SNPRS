@@ -3,88 +3,20 @@ import polars as pl
 import os
 from natsort import natsorted
 import pyarrow.parquet as pq
+import pandas as pd
 import argparse
 import shutil
 import subprocess
 import csv
-from multiprocessing import Lock
-
-lock = Lock()
-
-def save_sample_parquet(called_base_parquet, scaffold_parquet, sample_parquet, sample_id,summary_file):
-
-    col = sample_id
-
-    lazy_scaffold = pl.scan_parquet(scaffold_parquet)
-    lazy_called = pl.scan_parquet(called_base_parquet)
-    lazy_called_sites = lazy_called.select(['contig_index','contig_position'])
-
-    fixed_codes = pl.Series([1, 2, 3, 4, 16])
-
-    missing_df = (
-        lazy_scaffold
-        .join(lazy_called_sites, on=['contig_index','contig_position'], how='anti')
-        .with_columns([pl.lit(0).alias(sample_id)])
-        .select(['contig_index','contig_position',sample_id])
-        .cast({ "contig_index": pl.Int32, "contig_position": pl.Int32, sample_id: pl.Int8 })
-    )
-
-    called_df = (
-        lazy_scaffold
-        .join(lazy_called, on=['contig_index','contig_position'])
-        .select(['contig_index','contig_position','base_code'])
-        .rename({"base_code": sample_id})
-        .cast({ "contig_index": pl.Int32, "contig_position": pl.Int32, sample_id: pl.Int8 })
-    )
-
-    missing_count = missing_df.select(pl.len()).collect().item()
-    
-    called_count = called_df.filter(pl.col(sample_id) > 0).select(pl.len()).collect().item()
-    
-    fixed_count = (
-        called_df
-        .filter(pl.col(sample_id).is_in(fixed_codes))
-        .select(pl.len())
-        .collect()
-        .item()
-    )
-
-    ploidy_fail_count = (
-        called_df
-        .filter(pl.col(sample_id) < 0)
-        .select(pl.len())
-        .collect()
-        .item()
-    )
-
-    het_count = called_count - fixed_count
-
-    if os.path.exists(summary_file):
-        with lock, open(summary_file, "a", newline="") as out_f:
-            writer = csv.writer(out_f, delimiter="\t")
-            writer.writerow([
-                sample_id,
-                fixed_count,
-                het_count,
-                ploidy_fail_count,
-                missing_count
-            ])
-
-    (
-        pl.concat([called_df, missing_df])
-        .sort(['contig_index','contig_position'])
-        .select([sample_id])
-        .collect(streaming=True)
-        .write_parquet(sample_parquet, compression="snappy")
-    )
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Based off a scaffold parquet, get base information for a sample")
     
-    parser.add_argument("--called_bases", dest="called_base_file", type=str, required=True,help="File with paths to 2+ Called_Bases parquet")
-    parser.add_argument("--scaffold", dest="scaffold_file", type=str, required=True,help="Path to scaffold parquet")
+    parser.add_argument("--called_bases", dest="called_base_file", type=str, required=True,help="Path to a called base parquet")
     parser.add_argument("--join_id", dest="join_id", type=str, required=True,help="Prefix for output files")
-    parser.add_argument("--out_dir", dest="output_directory", type=str, default=None,help="Path to output directory [Default: cwd]")
+    parser.add_argument("--scaffold_parquet", dest="scaffold_parquet", type=str, required=True,help="Path to scaffold parquet")
+    parser.add_argument("--chunk_tsv", dest="chunk_tsv", type=str, required=True,help="Path to TSV file with chunk information")
+    parser.add_argument("--out_dir", dest="output_directory", type=str, required=True,help="Path to output directory [Default: cwd]")
 
     return parser.parse_args()
 
@@ -101,34 +33,69 @@ if not os.path.exists(called_base_file):
 schema = pq.read_schema(called_base_file)
 metadata_bytes = schema.metadata or {}
 og_metadata = {k.decode("utf-8"): v.decode("utf-8") for k, v in metadata_bytes.items()}
-
 sample_id = og_metadata['sample_id']
 
-# Scaffold file
-scaffold_file = os.path.abspath(args.scaffold_file)
-if not os.path.exists(scaffold_file):
-    sys.exit(f"{scaffold_file} (--scaffold_file) does not exist")
-
 # Output directory
-if args.output_directory is None:
-    output_directory = os.getcwd()
-else:
-    output_directory = os.path.abspath(args.output_directory)
+output_directory = os.path.abspath(args.output_directory)
 if not os.path.exists(output_directory):
     sys.exit(f"{output_directory} (--out_dir) does not exist")
 
+# Temp directory
 temp_directory = os.path.join(output_directory,f"Temp_{join_id}")
 if not os.path.exists(temp_directory):
-    os.mkdir(temp_directory)
+    sys.exit(f"{temp_directory} does not exist")
 
-# Output files
-summary_file = os.path.join(output_directory, f"{join_id}_Site_Counts.tsv")
-sample_parquet = os.path.join(temp_directory,f"Scaffolded_{sample_id}.parquet")
+# Scaffold parquet file
+scaffold_parquet = os.path.abspath(args.scaffold_parquet)
+if not os.path.exists(scaffold_parquet):
+    sys.exit(f"{scaffold_parquet} (--scaffold_parquet) does not exist")
+    
+# Chunk TSV file
+chunk_tsv = os.path.abspath(args.chunk_tsv)
+if not os.path.exists(chunk_tsv):
+    sys.exit(f"{chunk_tsv} (--chunk_tsv) does not exist")
 
 # endregion
 
-# region 01: Scaffold sample
+# region 01: Scaffold sample and save chunks
+lazy_scaffold = pl.scan_parquet(scaffold_parquet)
 
-save_sample_parquet(called_base_file,scaffold_file,sample_parquet,sample_id,summary_file)
+lazy_called = (
+    pl.scan_parquet(called_base_file)
+    .select(['contig_index','contig_position',pl.col("base_code").alias(sample_id)])
+    )
+
+sample_column = (
+    lazy_scaffold
+    .join(lazy_called,on=["contig_index","contig_position"],how="left")
+    .with_columns(pl.col(sample_id).fill_null(0))
+    .select(sample_id)
+    .cast({sample_id: pl.Int8 })
+).collect()
+
+chunk_df = pd.read_csv(chunk_tsv, sep="\t")
+
+for _, row in chunk_df.iterrows():
+
+    chunk_id = row["Chunk_ID"]
+    chunk_directory = row["Chunk_Directory"]
+    start = int(row["Start"])
+    stop = int(row["Stop"])
+    chunk_file = os.path.join(chunk_directory, f"{sample_id}.parquet")
+    
+    if os.path.exists(chunk_file):
+        os.rmdir(chunk_file)
+        
+    try:
+        (
+            sample_column
+            .slice(start, stop - start)
+            .write_parquet(chunk_file, compression="snappy")
+        )
+    
+    except Exception as e:
+        sys.exit(f"ERROR chunking sample {sample_id} for chunk {chunk_id}: {e}")
+    
+print(chunk_tsv)
 
 # endregion
