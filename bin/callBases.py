@@ -154,17 +154,26 @@ if het_df.height == 0:
 
 else:
 
-    het_expanded = (
+    het_check = (
         het_df
         .group_by(["contig_index", "contig_position","row_count"])
-        .agg([
-            pl.col("base").alias("bases")
-        ])
-        .with_columns([pl.col("bases").list.sort().list.join('').alias("base_string")])
-        .with_columns([pl.col("base_string").replace_strict(base_int).alias("base_code")])
-        .select(["contig_index", "contig_position", "base_code","row_count"])
+        .agg(pl.col("base").alias("bases"))
+        .with_columns(pl.col("bases").list.sort().list.join('').alias("base_string"))
+        .select("contig_index", "contig_position", "row_count", "base_string")
     )
 
+    bad = het_check.filter(~pl.col("base_string").is_in(list(base_int.keys())))
+
+    if bad.height > 0:
+        print("Offending base_string values:")
+        print(bad)
+        sys.exit("replace_strict will fail")
+
+    het_expanded = (
+        het_check
+        .with_columns(pl.col("base_string").replace_strict(base_int).alias("base_code"))
+        .select(["contig_index", "contig_position", "base_code", "row_count"])
+    )
 
     if max_alleles == 5:
 

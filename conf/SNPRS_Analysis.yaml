@@ -6,58 +6,53 @@ channels:
   - defaults
 
 dependencies:
+
+  - python=3.9
+
+  # Core
+  - pandas
+  - polars-lts-cpu
+  - numpy
+  - pyarrow
+  - natsort
+  - tqdm
+  - psutil
+  - joblib
+  - scipy
   
-  # Jupyter / analysis
-  - jupyterlab
-  - ipykernel
-  - ipywidgets
+  # Plotting / visualization
+  - matplotlib
+  - seaborn
+  - plotnine
+  - matplotlib-venn
+  - upsetplot
+  - plotly
 
   # Stats
   - pingouin
   - patsy
+  - statsmodels
 
-  # Plotting / visualization
-  - plotnine
-  - matplotlib-venn
-  - upsetplot
+  # Jupyter / analysis
+  - jupyterlab
+  - ipykernel
+  - ipywidgets
+  - rpds-py
 
-  # Bio / HDF5
+  # Bioinformatics / data
   - biom-format
   - h5py
-
-  # Python + core utilities
-  - python>=3.9
-  - pandas
-  - psutil
-  - coreutils
-  - scikit-learn
-  - matplotlib
-  - polars-lts-cpu
-  - seqkit
-  - scikit-bio
-  - plotly
-  - tqdm
-  - joblib
-  - scipy
-  - seaborn
-  - statsmodels
   - biopython
-  - pyarrow
-  - natsort
-
-  # Bioinformatics Tools
+  - pysam
+  - bcftools
   - bedtools
   - pybedtools
   - krakentools
-  - pysam
-  - bcftools
+  - seqkit
+  - scikit-bio
+  - scikit-learn
 
-  # Phylogenetic Tools
+  # Phylogenetics
   - dendropy
   - ete3
   - toytree
-
-
-
-
-
