@@ -94,40 +94,6 @@ for called_base in called_base_files:
 
     metadata_list.append(metadata_dict)
 
-df = pd.DataFrame(metadata_list)
+df = pd.DataFrame(metadata_list)[['sample_id','Fixed_Sites','Valid_Het_Sites','Ploidy_Fail_Sites']]
 
-def parse_metadata_string(s):
-
-    if not s or not isinstance(s, str):
-        return {}
-    
-    parts = [x.strip() for x in s.split(",")]
-    out = {}
-    for p in parts:
-        if ":" in p:
-            key, value = p.split(":", 1)
-            out[key.strip()] = value.strip()
-    return out
-
-depth_expanded = df["depth_statistics"].apply(parse_metadata_string).apply(pd.Series)
-allele_expanded = df["allele_frequencies"].apply(parse_metadata_string).apply(pd.Series)
-raw_status_expanded = df["Raw_Status_Counts"].apply(parse_metadata_string).apply(pd.Series)
-called_base_expanded = df["Called_Base_Counts"].apply(parse_metadata_string).apply(pd.Series)
-
-final_df = pd.concat(
-    [
-        df.drop(
-            ["depth_statistics", "allele_frequencies", 
-             "Raw_Status_Counts", "Called_Base_Counts","Type_Code_Map"],
-            axis=1
-        ),
-        depth_expanded,
-        allele_expanded,
-        raw_status_expanded,
-        called_base_expanded,
-    ],
-    axis=1
-)
-final_df.columns = [col.strip().replace(" ", "_").replace("-", "_") for col in final_df.columns]
-
-final_df.to_csv(output_file, sep=",", index=False)
+df.to_csv(output_file, sep="\t", index=False)

@@ -84,7 +84,7 @@ for _, row in chunk_df.iterrows():
     chunk_file = os.path.join(chunk_directory, f"{sample_id}.parquet")
     
     if os.path.exists(chunk_file):
-        os.rmdir(chunk_file)
+        os.remove(chunk_file)
         
     try:
         (
