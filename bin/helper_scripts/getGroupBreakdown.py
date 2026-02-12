@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 import argparse
 import csv
 from collections import defaultdict
@@ -7,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Estimate species mixture proportions from SNP data")
+    parser = argparse.ArgumentParser(description="Estimate group mixture proportions from SNP data")
     parser.add_argument("--in", dest="snp_file", type=str, required=True, help="Path to SNP TSV file")
     parser.add_argument("--out", dest="out_file", type=str, required=True, help="Path to output TSV file")
     parser.add_argument("--error", dest="error", type=float, default=0.01, help="Small pseudo-count to avoid zeros")
@@ -21,8 +22,8 @@ def load_all_samples_tsv(filename):
         reader = csv.DictReader(f, delimiter="\t")
         for row in reader:
             sample = row["Sample_ID"]
-            sp = row["Reference_Species"]
-            data[sample][sp] = {
+            gr = row["Focal_Group"]
+            data[sample][gr] = {
                 "snps": int(row["SNP_Count"]),
                 "match": int(row["Match"]),
                 "non_match": int(row["Non_Match"])
@@ -30,25 +31,25 @@ def load_all_samples_tsv(filename):
     return dict(data)
 
 
-def prepare_sample_data(species_data):
+def prepare_sample_data(group_data):
 
-    species = []
+    groups = []
     match = []
     non_match = []
 
-    for sp, counts in species_data.items():
-        species.append(sp)
+    for gr, counts in group_data.items():
+        groups.append(gr)
         match.append(counts['match'])
         non_match.append(counts['non_match'])
 
-    return species, np.array(match, dtype=float), np.array(non_match, dtype=float)
+    return groups, np.array(match, dtype=float), np.array(non_match, dtype=float)
 
 def estimate_all_samples(all_samples, error=0.01, compute_ci=True):
 
     results = []
 
-    for sample_id, species_data in all_samples.items():
-        species, match, non_match = prepare_sample_data(species_data)
+    for sample_id, group_data in all_samples.items():
+        groups, match, non_match = prepare_sample_data(group_data)
         total = match + non_match
 
         p_raw = (match + error) / (total + 2 * error)
@@ -61,12 +62,12 @@ def estimate_all_samples(all_samples, error=0.01, compute_ci=True):
             lower = np.maximum(0, p_hat - z * se)
             upper = np.minimum(1, p_hat + z * se)
         else:
-            lower = upper = [None] * len(species)
+            lower = upper = [None] * len(groups)
 
-        for sp, p, lo, hi in zip(species, p_hat, lower, upper):
+        for gr, p, lo, hi in zip(groups, p_hat, lower, upper):
             results.append({
                 "Sample_ID": sample_id,
-                "Species": sp,
+                "Focal_Group": gr,
                 "Proportion": p,
                 "CI_lower": lo,
                 "CI_upper": hi

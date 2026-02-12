@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import argparse
+import sys
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Plot SNPRS data")
@@ -24,9 +25,9 @@ if ext not in valid_exts:
 
 df_results = pd.read_csv(snp_file, sep="\t")
 
-species_order = sorted(df_results["Species"].unique())
+group_order = sorted(df_results["Focal_Group"].unique())
 
-df_results["Species"] = pd.Categorical(df_results["Species"], categories=species_order, ordered=True)
+df_results["Focal_Group"] = pd.Categorical(df_results["Focal_Group"], categories=group_order, ordered=True)
 
 def plot_all_samples(df_results,save_path):
     samples = df_results["Sample_ID"].unique()
@@ -44,7 +45,7 @@ def plot_all_samples(df_results,save_path):
 
         ax.errorbar(
             df["Proportion"],
-            df["Species"],
+            df["Focal_Group"],
             xerr=[df["Proportion"] - df["CI_lower"],
                   df["CI_upper"] - df["Proportion"]],
             fmt='o',
@@ -53,7 +54,7 @@ def plot_all_samples(df_results,save_path):
         )
         ax.set_title(sample_id)
         ax.set_xlabel("Proportion")
-        ax.set_ylabel("Species")
+        ax.set_ylabel("Focal_Group")
 
     # Turn off empty subplots
     for i in range(len(samples), nrows * ncols):
