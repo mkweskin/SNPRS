@@ -194,10 +194,11 @@ def snpSubtractor(fixed_df, focal_id, code_file, subtract_samples):
 #####
 
 parser = argparse.ArgumentParser(description='Generate alignment from SNPRS data')
-parser.add_argument('-j','--json_file',dest="json_file", type=str,required=True, help='Path to SNPRS joined JSON file')
+parser.add_argument('-g','--groups',dest="group_file", required = True, type=str, help='Path to TSV file with group information (Sample_ID, SNP_Group)')
+parser.add_argument('-s','--snp_parquet',dest="snp_parquet", required = True, type=str, help='Path to full SNP parquet to refilter')
+
 parser.add_argument('-o','--out',dest="out_dir", type=str,required=True, help='Path to output directory')
 parser.add_argument('-n','--name',dest="snp_name", required=True,type=str, help='Prefix for output files')
-parser.add_argument('-g','--groups',dest="group_file", required = True, type=str, help='Path to TSV file with group information (Sample_ID, SNP_Group)')
 
 parser.add_argument('-p','--prop',dest="prop", default=None,type=float, help='Proportion of samples within a group required to call a SNP [Default: Use all sites]')
 parser.add_argument('-t','--top',dest="top", default=None,type=int, help='Choose the top <top> SNPs based on total missing data')
@@ -206,23 +207,16 @@ parser.add_argument('--missing',dest="missing", default=None,type=int, help='Max
 
 args = parser.parse_args()
 
-json_file = os.path.abspath(args.json_file)
+# Set paths
+output_directory = os.path.abspath(args.out_dir)
 
-with open(json_file, "r") as f:
-    data = json.load(f)
+thresh_snp_file = os.path.join(output_directory,f"{args.snp_name}_Threshold_SNPs.parquet")
+top_snp_file = os.path.join(output_directory,f"{args.snp_name}_Top_{args.top}_SNPs.parquet")
+snp_count_file = os.path.join(output_directory,f"{args.snp_name}_SNP_Counts.tsv")
 
-join_id = data["Join_ID"]
-joined_directory = data["Joined_Directory"]
-sample_ids = natsorted(data["Sample_IDs"].split(","))
-scaffold_file = data["Scaffold_File"]
-code_file = data["Code_File"]
-site_file = data["Site_File"]
-sample_summary_file = data["Sample_Summary_File"]
-site_count_file = data["Site_Count_File"]
-
-lazy_codes = pl.scan_parquet(code_file)
-lazy_sites = pl.scan_parquet(site_file)
-missing_info = lazy_sites.select(['contig_index','contig_position','Missing']).collect(engine="streaming")
+assert not os.path.exists(snp_count_file), f"{snp_count_file} exists..."
+assert not os.path.exists(thresh_snp_file), f"{thresh_snp_file} exists..."
+assert not os.path.exists(top_snp_file), f"{top_snp_file} exists..."
 
 # Set sample groups
 group_file = os.path.abspath(args.group_file)
@@ -235,50 +229,15 @@ group_data =  (
 )
 
 all_ids = list({id for ids in group_data.values() for id in ids})
+full_snp_file = os.path.join(args.snp_parquet)
 
-# Get fixed sites for each group
-output_directory = os.path.abspath(args.out_dir)
-fixed_sites_dir = os.path.join(output_directory,"Fixed_Sites")
-
-if not os.path.exists(output_directory):
-    os.mkdir(output_directory)
-
-if not os.path.exists(fixed_sites_dir):
-    os.mkdir(fixed_sites_dir)
-else:
-    sys.exit(f"{fixed_sites_dir} already exists...")
-    
-fixed_sites = [
-    getFixedSites(code_file, ids, group)
-    for group, ids in group_data.items()
-]
-
-for i,(group, ids) in enumerate(group_data.items()):
-    out_path = os.path.join(fixed_sites_dir, f"{group}.parquet")
-    fixed_sites[i].write_parquet(out_path,compression="snappy")
-    
-
-snp_results = []
-
-for i,(group, ids) in enumerate(group_data.items()):
-    print(f"Starting {group}...\n")
-    non_focal = list(set(all_ids) - set(ids))
-    sp_snp_df = snpSubtractor(fixed_sites[i],group,code_file,non_focal)
-
-    snp_results.append(sp_snp_df.with_columns(pl.lit(group).alias("SNP_Group"),
-    pl.col(group).alias("SNP_Base")).select(['contig_index','contig_position','SNP_Group','SNP_Base','Fixed_Count']))
-
-full_snp_df = pl.concat(snp_results).join(missing_info,on=["contig_index","contig_position"],how="left")
-
+full_snp_df = pl.read_parquet(full_snp_file)
 full_snp_count_df = full_snp_df.group_by("SNP_Group").agg(pl.len().alias("All_SNPs"))
-
-full_snp_file = os.path.join(output_directory,f"{args.snp_name}_All_SNPs.parquet")
-full_snp_df.write_parquet(full_snp_file,compression="snappy")
 
 if args.missing:
     max_missing = args.missing
 else:
-    max_missing = len(sample_ids) - 1
+    max_missing = len(set(all_ids)) - 1
 
 missing_snp_df = full_snp_df.filter(pl.col("Missing") <= max_missing)
 
@@ -315,11 +274,7 @@ thresh_snp_df = (
 ).select(["contig_index","contig_position","SNP_Group","SNP_Base","Missing"])
 
 thresh_snp_count_df = thresh_snp_df.group_by("SNP_Group").agg(pl.len().alias("Threshold_Filter"))
-
-thresh_snp_file = os.path.join(output_directory,f"{args.snp_name}_Threshold_SNPs.parquet")
 thresh_snp_df.write_parquet(thresh_snp_file,compression="snappy")
-
-snp_count_file = os.path.join(output_directory,f"{args.snp_name}_SNP_Counts.tsv")
 
 (
     full_snp_count_df
@@ -334,8 +289,6 @@ snp_count_file = os.path.join(output_directory,f"{args.snp_name}_SNP_Counts.tsv"
 
 if args.top:
     
-    top_snp_file = os.path.join(output_directory,f"{args.snp_name}_Top_{args.top}_SNPs.parquet")
-
     top_snp_df = (
         thresh_snp_df
         .sort('Missing')

@@ -37,12 +37,14 @@ def snpClassifier(snp_df, sample_id, called_base_path):
     def safe_prop(numer, denom):
         return (numer / denom).fill_null(0).alias("prop")
 
-    sample_called_bases = pl.read_parquet(called_base_path)
-    groups = snp_df["SNP_Group"].unique().to_list()
-
+    snp_groups = snp_df["SNP_Group"].unique().to_list()
+    snp_coords = snp_df.select(['contig_index','contig_position']).unique()
+    
+    sample_called_bases = pl.read_parquet(called_base_path).join(snp_coords,on=['contig_index','contig_position'],how="inner")
+    
     sample_rows = []
-
-    for gr in groups:
+    
+    for gr in snp_groups:
 
         gr_snp = snp_df.filter(pl.col("SNP_Group") == gr)
 
@@ -153,6 +155,7 @@ called_results = []
 for called_path in called_base_paths:
 
     sample_id = os.path.basename(called_path).replace("_Called.parquet","")
+    print(sample_id)
     called_results.append(snpClassifier(snp_df,sample_id,called_path))
 
 called_class_results = pl.concat(called_results)

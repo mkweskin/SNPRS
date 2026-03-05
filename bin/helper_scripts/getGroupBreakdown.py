@@ -22,7 +22,7 @@ def load_all_samples_tsv(filename):
         reader = csv.DictReader(f, delimiter="\t")
         for row in reader:
             sample = row["Sample_ID"]
-            gr = row["Focal_Group"]
+            gr = row["Reference_Species"]
             data[sample][gr] = {
                 "snps": int(row["SNP_Count"]),
                 "match": int(row["Match"]),
@@ -67,7 +67,7 @@ def estimate_all_samples(all_samples, error=0.01, compute_ci=True):
         for gr, p, lo, hi in zip(groups, p_hat, lower, upper):
             results.append({
                 "Sample_ID": sample_id,
-                "Focal_Group": gr,
+                "SNP_Group": gr,
                 "Proportion": p,
                 "CI_lower": lo,
                 "CI_upper": hi
