@@ -204,8 +204,8 @@ process SUBSET_READS {
     log_file = "${subset_directory}/out_Subsample_${sample_id}"
 
     reformat_cmd = reverse_read
-        ? "reformat.sh in=${forward_read} in2=${reverse_read} out=${out1} out2=${out2} outs=${outs} samplebasestarget=${allocated} &> ${log_file}"
-        : "reformat.sh in=${forward_read} out=${outs} samplebasestarget=${allocated} &> ${log_file}"
+        ? "reformat.sh in=${forward_read} in2=${reverse_read} out=${out1} out2=${out2} outs=${outs} samplebasestarget=${allocated} tossjunk=t &> ${log_file}"
+        : "reformat.sh in=${forward_read} out=${outs} samplebasestarget=${allocated} tossjunk=t &> ${log_file}"
 
     """
     $reformat_cmd

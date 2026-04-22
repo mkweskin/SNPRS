@@ -275,15 +275,6 @@ full_snp_count_df = full_snp_df.group_by("SNP_Group").agg(pl.len().alias("All_SN
 full_snp_file = os.path.join(output_directory,f"{args.snp_name}_All_SNPs.parquet")
 full_snp_df.write_parquet(full_snp_file,compression="snappy")
 
-if args.missing:
-    max_missing = args.missing
-else:
-    max_missing = len(sample_ids) - 1
-
-missing_snp_df = full_snp_df.filter(pl.col("Missing") <= max_missing)
-
-missing_snp_count_df = missing_snp_df.group_by("SNP_Group").agg(pl.len().alias("Missing_Filter"))
-
 if args.min_table:
     
     group_min_df = pd.read_csv(args.min_table,sep="\t")
@@ -307,7 +298,7 @@ else:
 
 
 thresh_snp_df = (
-    missing_snp_df
+    full_snp_df
     .with_columns([
         pl.col("SNP_Group").replace_strict(min_counts).alias("Min_Count")
         ])
@@ -316,15 +307,24 @@ thresh_snp_df = (
 
 thresh_snp_count_df = thresh_snp_df.group_by("SNP_Group").agg(pl.len().alias("Threshold_Filter"))
 
+if args.missing:
+    max_missing = args.missing
+else:
+    max_missing = len(sample_ids) - 1
+
+missing_snp_df = thresh_snp_df.filter(pl.col("Missing") <= max_missing)
+
+missing_snp_count_df = missing_snp_df.group_by("SNP_Group").agg(pl.len().alias("Missing_Filter"))
+
 thresh_snp_file = os.path.join(output_directory,f"{args.snp_name}_Threshold_SNPs.parquet")
-thresh_snp_df.write_parquet(thresh_snp_file,compression="snappy")
+missing_snp_df.write_parquet(thresh_snp_file,compression="snappy")
 
 snp_count_file = os.path.join(output_directory,f"{args.snp_name}_SNP_Counts.tsv")
 
 (
     full_snp_count_df
-    .join(missing_snp_count_df, on="SNP_Group", how="left")
     .join(thresh_snp_count_df, on="SNP_Group", how="left")
+    .join(missing_snp_count_df, on="SNP_Group", how="left")
     .with_columns([
         pl.exclude("SNP_Group").fill_null(0)
     ])
