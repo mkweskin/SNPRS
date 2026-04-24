@@ -45,7 +45,7 @@ def save_scaffold_parquet(sorted_parquet_paths, output_parquet, batch_size=1000)
             [pl.scan_parquet(p).select(['contig_index', 'contig_position'])
              for p in batch],
             how="vertical"
-        ).unique().collect(streaming=True)
+        ).unique().collect(engine="streaming")
 
         for row in df.rows():
             key = (row[0], row[1])
@@ -53,7 +53,10 @@ def save_scaffold_parquet(sorted_parquet_paths, output_parquet, batch_size=1000)
 
     scaffold = pl.DataFrame(
         list(seen),
-        schema=["contig_index", "contig_position"]
+        schema=[
+        ("contig_index", pl.Int32),
+        ("contig_position", pl.Int32)],
+        orient="row"
     ).sort(["contig_index", "contig_position"])
 
     scaffold.write_parquet(output_parquet, compression="snappy")
