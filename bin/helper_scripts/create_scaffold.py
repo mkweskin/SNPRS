@@ -21,40 +21,43 @@ def parse_args():
 def fetch_base_parquets(file_path):
 
     with open(file_path, "r") as f:
-        paths = [line.strip() for line in f if line.strip()]
+        paths = [os.path.abspath(line.strip())
+                 for line in f
+                 if line.strip()]
 
-    for path in paths:
-        if not os.path.exists(path):
-            print(f"Error: Parquet file '{path}' not found.")
-            sys.exit(1)
+    if not paths:
+        sys.exit("Error: You must provide at least one called base parquet file.")
+
+    missing = [p for p in paths if not os.path.exists(p)]
+    if missing:
+        sys.exit("Error: Missing parquet files:\n" + "\n".join("  " + m for m in missing))
+
+    return paths
+
+def save_scaffold_parquet(sorted_parquet_paths, output_parquet, batch_size=1000):
+
+    seen = set()
+
+    for i in range(0, len(sorted_parquet_paths), batch_size):
+        batch = sorted_parquet_paths[i:i + batch_size]
+
+        df = pl.concat(
+            [pl.scan_parquet(p).select(['contig_index', 'contig_position'])
+             for p in batch],
+            how="vertical"
+        ).unique().collect(streaming=True)
+
+        for row in df.rows():
+            key = (row[0], row[1])
+            seen.add(key)
+
+    scaffold = pl.DataFrame(
+        list(seen),
+        schema=["contig_index", "contig_position"]
+    ).sort(["contig_index", "contig_position"])
+
+    scaffold.write_parquet(output_parquet, compression="snappy")
     
-    if len(paths) < 1:
-        print("Error: You must provide at least one called base parquet files.")
-        sys.exit(1)
-
-    return [os.path.abspath(path) for path in paths]
-
-def save_scaffold_parquet(sorted_parquet_paths, output_parquet):
-
-    scaffold = (
-        pl.scan_parquet(sorted_parquet_paths[0])
-        .select(['contig_index','contig_position'])
-        .collect()
-    )
-    
-    if len(sorted_parquet_paths) > 1:
-
-        for parquet in sorted_parquet_paths[1:]:
-
-            next_df = (
-                pl.scan_parquet(parquet)
-                .select(['contig_index','contig_position'])
-                .collect()
-            )
-
-            scaffold = pl.concat([scaffold, next_df], how="vertical").unique()
-
-    scaffold.sort(["contig_index", "contig_position"]).write_parquet(output_parquet,compression="snappy")
        
 # region 00: Parse args and set up directories
 args = parse_args()
