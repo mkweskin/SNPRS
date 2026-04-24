@@ -160,12 +160,12 @@ if os.path.exists(output_site_file):
 if os.path.exists(output_code_file):
     sys.exit(f"{output_code_file} already exists...")
     
-parquet_files = [f for f in os.listdir(chunk_dir) if f.endswith(".parquet")]
-if len(parquet_files) == 0:
+parquet_files = [f for f in os.scandir(chunk_dir) if f.name.endswith(".parquet")]
+if not parquet_files:
     sys.exit(f"No parquet files found in {chunk_dir}...")
 
-sample_ids = natsorted([os.path.splitext(f)[0] for f in parquet_files])
-sorted_parquets = [os.path.join(chunk_dir, f"{sid}.parquet") for sid in sample_ids]
+sample_ids = natsorted(os.path.splitext(f.name)[0] for f in parquet_files)
+sorted_parquets = [os.path.join(chunk_dir, sid + ".parquet") for sid in sample_ids]
 
 lazy_frames = [pl.scan_parquet(f) for f in sorted_parquets]
 chunk_df = pl.concat(lazy_frames, how="horizontal").collect()
