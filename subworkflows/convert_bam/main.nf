@@ -49,10 +49,13 @@ if [ -e "$output_file" ] ; then
     exit 1
 fi"""
 
+    cleanup_cmd = (params.delete_bam) ? "rm -f ${sample_bam} ${sample_bam}.bai" : ":"  
+
     """
     mkdir -p ${raw_parquet_directory} &&
     $delete_cmd &&
     python ${bam_convert_script} --bam ${sample_bam} --fasta ${genome_file} --parquet ${output_file} --mapq ${mapq} --baseq ${baseq} --adj_coef ${adj_coef} &&
+    $cleanup_cmd &&
     echo -n "${sample_id},${output_file}"
     """
 }
