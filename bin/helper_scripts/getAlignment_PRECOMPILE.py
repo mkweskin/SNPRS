@@ -16,6 +16,7 @@ parser = argparse.ArgumentParser(description='Generate alignment from SNPRS data
 parser.add_argument('-j','--join_dir',dest="join_dir", type=str,required=True, help='Path to SNPRS joined directory')
 parser.add_argument('-m','--missing',dest="missing", type=str,required=True, help='If an integer, the max number allowed missing. If < 1, the proportion with data required')
 parser.add_argument('-a','--alignment',dest="alignment_file", required=True,type=str, help='Output path for alignment')
+parser.add_argument('-g','--gaps',dest="use_gaps",action="store_true", help='Include gaps as - in alignment, and use "N" for everything else (missing or invalid)')
 
 def interpret_missing(missing_str, sample_count):
 
@@ -60,10 +61,14 @@ tree_sites = (
     .select(["contig_index", "contig_position", "Missing"])
 )
 
-base_convert_dict = { 0:'-',
-                     1:'A',2:"C",3:"G",4:"T",
-                     33:'A', 34:'C', 35:'T', 36:'G'}
-base_set = {0,1,2,3,4,33,34,35,36}
+base_convert_dict = { 0:'N',
+                    1:'A',2:"C",3:"G",4:"T",16:"-",
+                    33:'A', 34:'C', 35:'T', 36:'G'}
+
+if args.use_gaps:
+    base_set = {0,1,2,3,4,16,33,34,35,36}
+else:
+    base_set = {0,1,2,3,4,33,34,35,36}
 
 allowed = pl.lit(list(base_set))
 
@@ -78,12 +83,6 @@ lazy_tree_base_codes = (
         )
     )
 ).collect(engine="streaming")
-
-base_convert_dict = { 0:'-',
-                     1:'A',2:"C",3:"G",4:"T",
-                     33:'A', 34:'C', 35:'T', 36:'G'}
-
-base_set = {0,1,2,3,4,33,34,35,36}
 
 base_merged_df = lazy_tree_base_codes.with_columns([
     pl.col(col)

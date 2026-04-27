@@ -1,6 +1,12 @@
 #! /usr/bin/env nextflow
 nextflow.enable.dsl=2
 
+// TO DO:
+
+// SKIP READ COUNTING
+// CLEAN UP READ INPUT
+// AUTO PE READ REPAIR IF SUBSET FAILS
+
 def validate_dir(path, flag) {
     if (!file(path).isDirectory()) error "${path} provided by --${flag} does not exist"
 }
