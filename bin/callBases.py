@@ -109,7 +109,7 @@ raw_base_df = (
         .alias("status")
     )
     .select(["contig_index", "contig_position", "depth", "base", "frequency", "status"])
-).collect()
+).collect(engine="streaming")
 
 # Get sites that failed QC or were insertions
 non_base_df = raw_base_df.filter(pl.col("status") != "Pass")
@@ -226,5 +226,9 @@ new_metadata['Ploidy_Fail_Sites'] = str(int(ploidy_fail_df.height))
 
 # Save final calls
 final_metadata = {k.encode(): v.encode() for k, v in new_metadata.items()}
-final_arrow = combined_df.to_arrow().replace_schema_metadata(final_metadata)
-pq.write_table(final_arrow, output_parquet, compression="snappy")
+
+arrow = combined_df.to_arrow()
+new_schema = arrow.schema.with_metadata(final_metadata)
+arrow = arrow.cast(new_schema)
+
+pq.write_table(arrow, output_parquet, compression="snappy")
