@@ -82,7 +82,6 @@ if args.fasta_file:
     if not raw_records:
         sys.exit("No contigs found.")
 
-    # Sort contigs naturally (e.g. contig1, contig2, ..., contig10)
     raw_records = natsorted(raw_records, key=lambda x: x[0])
     contig_ids = [rec_id.strip().split()[0] for rec_id, _ in raw_records]
     contig_map = {v: k for k, v in enumerate(contig_ids)}
