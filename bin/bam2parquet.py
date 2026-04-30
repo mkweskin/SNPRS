@@ -23,6 +23,7 @@ import tempfile
 import math
 import csv
 import io
+from pathlib import Path
 
 lock = Lock()
 
@@ -40,18 +41,6 @@ def parse_args():
     parser.add_argument("--cpus", dest="user_cpu", type=int, default=None,help="Number of CPUs requested [Default: all available CPUs]")
 
     return parser.parse_args()
-
-def write_contig_bed(contigs, contig_lengths, bed_path):
-    with open(bed_path, "w") as bed:
-        for contig in contigs:
-            length = contig_lengths.get(contig)
-            if length is not None:
-                bed.write(f"{contig}\t0\t{length}\n")
-            else:
-                sys.exit(f"ERROR: contig '{contig}' not found in contig_lengths")
-                continue
-    return bed_path
-
 
 def run_mpileup_chunk(bam_file, fasta_file, mapq, baseq, adj_coef, bed_file, temp_file):
     
@@ -90,14 +79,13 @@ def run_mpileup_chunk(bam_file, fasta_file, mapq, baseq, adj_coef, bed_file, tem
     if returncode != 0:
         raise RuntimeError(f"mpileup failed for {bed_file}:\n{stderr}")
 
-    os.remove(bed_file)
-
     if results:
         with lock, open(temp_file, "a", newline="") as out_f:
             writer = csv.writer(out_f, delimiter="\t")
             writer.writerows(results)
 
 def process_pileup_row(row):
+    
     contig = row["Scaffold"]
     pos = row["Position"]
     ref_base = row["Ref_Base"]
@@ -203,27 +191,6 @@ def compute_freq_stats(temp_file):
     
     return stats
 
-def get_arrow(temp_file,contig_map,metadata):
-    
-    return (
-        pl.scan_csv(temp_file,separator="\t",has_header=True)
-        .with_columns([
-            pl.col("contig_id").replace_strict(contig_map, default=None).alias("contig_index")
-        ])
-        .select(["contig_index", "contig_position", "base", "depth", "frequency"])
-        .with_columns([
-            pl.col("contig_index").cast(pl.Int32),
-            pl.col("contig_position").cast(pl.Int32),
-            pl.col("depth").cast(pl.Int32),
-            pl.col("frequency").cast(pl.Float32),
-            pl.col("base").cast(pl.Utf8)
-        ])
-        .sort(by=["contig_index", "contig_position", "frequency"],descending=[False, False, True])
-        .collect()
-        .to_arrow()
-        .replace_schema_metadata(metadata)
-    )
-
 ##### Main #####
 
 # region 00: Parse args
@@ -236,17 +203,24 @@ baseq = args.baseq
 adj_coef = args.adj_coef
 
 fasta_file = os.path.abspath(args.fasta_file)
+fasta_dir = os.path.dirname(fasta_file)
+
+fai_file = fasta_file + ".fai"
+bed_dir = os.path.join(fasta_dir,"BED_Chunks")
+
 if not os.path.exists(fasta_file):
     sys.exit(f"{fasta_file} does not exist...")
-
+elif not os.path.exists(fai_file):
+    sys.exit(f"{fai_file} does not exist...")  
+elif not os.path.exists(bed_dir):
+    sys.exit(f"{bed_dir} does not exist...")  
+    
 bam_file = os.path.abspath(args.bam_file)
 if not os.path.exists(bam_file):
     sys.exit(f"{bam_file} does not exist...")
+
 data_dir = os.path.dirname(bam_file)
 sample_name = os.path.splitext(os.path.basename(bam_file))[0]
-
-with pysam.AlignmentFile(bam_file, "rb") as bamfile:
-    paired = any(read.is_paired for i, read in enumerate(bamfile.fetch(until_eof=True)) if i < 1000)
 
 if not args.parquet_file:
     parquet_file = os.path.join(data_dir,sample_name+"_Raw.parquet")
@@ -277,33 +251,14 @@ reverse_map = {k: v for k, v in enumerate(contig_ids)}
 
 # region 02: Process BAM into pileup
 
-# Chunk out contigs by length
-contig_lengths = {rec_id.strip().split()[0] : len(seq) for rec_id, seq in raw_records}
+chunk_beds = sorted(Path(bed_dir).glob("*.bed"))
+temp_file = Path(data_dir, f"{sample_name}_Temp.tsv")
 
-contig_count = len(contig_ids)
-n_chunks = min(contig_count, user_cpu)
-chunk_size = (contig_count + n_chunks - 1) // n_chunks
-
-len_sorted_records = sorted(raw_records, key=lambda x: len(x[1]), reverse=True)
-len_sorted_contig_ids = [rec_id.strip().split()[0] for rec_id, _ in len_sorted_records]
-contig_chunks = [[] for _ in range(n_chunks)]
-
-for i, contig in enumerate(len_sorted_contig_ids):
-    contig_chunks[i % n_chunks].append(contig)
-
-# Create BED files for mpileup
-temp_beds = []
-for i, chunk in enumerate(contig_chunks):
-    bed_path = os.path.join(data_dir,sample_name+f"_tmp_{i}.bed")
-    write_contig_bed(chunk, contig_lengths, bed_path)
-    temp_beds.append(bed_path)
-
-# Process pileup in parallel
-temp_file = os.path.join(data_dir,sample_name+"_Temp.tsv")
-with open(temp_file, "w", newline="") as out_f:
+with temp_file.open("w", newline="") as out_f:
     writer = csv.writer(out_f, delimiter="\t")
     writer.writerow(["contig_id", "contig_position", "depth", "base", "frequency"])
 
+# Run mpileup jobs in parallel
 with ProcessPoolExecutor(max_workers=user_cpu) as executor:
     futures = [
         executor.submit(
@@ -314,20 +269,19 @@ with ProcessPoolExecutor(max_workers=user_cpu) as executor:
             baseq,
             adj_coef,
             bed_file,
-            temp_file
+            temp_file,
         )
-        for bed_file in temp_beds
+        for bed_file in chunk_beds
     ]
+
     for fut in futures:
         try:
             fut.result()
         except Exception as e:
-            print(f"❌ Error in worker: {e}")
+            print(f"Error in worker: {e}")
 
-with open(temp_file, "r") as f:
-    line_count = sum(1 for _ in f)
-
-if line_count == 0:
+# Check if output is empty
+if temp_file.stat().st_size == 0:
     raise ValueError("Pileup file was empty.")
 
 # endregion
@@ -342,14 +296,12 @@ depth_threshold = int(float(depth_stats.get("depth_threshold", 0)))
 percent_covered = f"{int(depth_stats['covered'])/int(total_sites):.2f}"
 freq_stats = compute_freq_stats(temp_file)
 
-
 metadata = {
     "sample_id": sample_name,
     "bam_file": bam_file,
     "sample_parquet": parquet_file,
     "reference_genome": fasta_file,
     "percent_covered": percent_covered,
-    "paired_end":"TRUE" if paired else "FALSE",
     "qc_filtering_params":f"MAPQ: {mapq}; BASEQ: {baseq}",
     "depth_statistics": ", ".join([f"{k}: {v}" for k, v in depth_stats.items()]),
     "allele_frequencies": ", ".join([f"{k}: {v}" for k, v in freq_stats.items()])
@@ -358,10 +310,28 @@ metadata = {
 final_metadata = {k.encode(): str(v).encode() for k, v in metadata.items()}
 
 try:
-    arrow_table = get_arrow(temp_file, contig_map,final_metadata)
-    pq.write_table(arrow_table, parquet_file, compression="snappy")
-except Exception as e:
-    raise e
+    
+    arrow = (
+        pl.scan_csv(temp_file, separator="\t", has_header=True)
+        .with_columns(
+            pl.col("contig_id").replace_strict(contig_map, default=None).cast(pl.Int32).alias("contig_index"),
+            pl.col("contig_position").cast(pl.Int32),
+            pl.col("depth").cast(pl.Int32),
+            pl.col("frequency").cast(pl.Float32),
+            pl.col("base").cast(pl.Utf8),
+        )
+        .select(["contig_index", "contig_position", "base", "depth", "frequency"])
+        .collect(engine="streaming")
+        .sort(["contig_index", "contig_position", "frequency"],
+              descending=[False, False, True])
+        .to_arrow()
+    )
+    
+    arrow = arrow.cast(arrow.schema.with_metadata(final_metadata))
+    pq.write_table(arrow, parquet_file, compression="snappy")
+    
+except Exception:
+    raise
 else:
     os.remove(temp_file)
 
