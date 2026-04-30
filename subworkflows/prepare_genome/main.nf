@@ -316,7 +316,7 @@ process PROCESS_RAY{
     stats.sh ${genome_file} &> ${stats_file}
     cd ${genome_dir}
     samtools faidx ${genome_file}
-    python $index_script --fasta $genome_file --make_parquet
+    python $index_script --fasta $genome_file --cpu_count $sample_cpu --make_parquet
     echo -n "${genome_name},${genome_dir},${genome_file}"
     """
 }
@@ -378,7 +378,7 @@ fi"""
     reformat.sh in=${fasta_file} out=${genome_file} minlength=${min_contig} &&
     stats.sh ${genome_file} &> ${stats_file} &&
     samtools faidx $genome_file &&
-    python $index_script --fasta $genome_file --make_parquet &&
+    python $index_script --fasta $genome_file --cpu_count $sample_cpu --make_parquet &&
     echo -n "${genome_name},${genome_dir},${genome_file}"
     """
 }

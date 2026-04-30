@@ -54,7 +54,7 @@ fi"""
     """
     mkdir -p ${raw_parquet_directory} &&
     $delete_cmd &&
-    python ${bam_convert_script} --bam ${sample_bam} --fasta ${genome_file} --parquet ${output_file} --mapq ${mapq} --baseq ${baseq} --adj_coef ${adj_coef} &&
+    python ${bam_convert_script} --bam ${sample_bam} --fasta ${genome_file} --parquet ${output_file} --mapq ${mapq} --baseq ${baseq} --adj_coef ${adj_coef} --cpus ${sample_cpu} &&
     $cleanup_cmd &&
     echo -n "${sample_id},${output_file}"
     """
