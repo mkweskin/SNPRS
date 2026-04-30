@@ -8,15 +8,6 @@ import pyarrow as pa
 import json
 import sys
 
-# Site Types
-# 0: Fixed Base
-# 1: Fixed Deletion
-# 2: Fixed Insertion
-# 3: Het with only ACTG
-# 4: Het with any -
-# 5: Het Insertion
-# 6: Ploidy Fail
-
 def parse_args():
     
     parser = argparse.ArgumentParser(description="Based on min_depth, min_freq, and max_alleles, saves a parquet file with called bases.")
@@ -205,8 +196,6 @@ else:
             .with_columns([(pl.col("base_code") * -1).alias("base_code")])
         )
 
-combined_df = pl.concat([fixed_df, het_df, ploidy_fail_df]).sort(["contig_index", "contig_position"])
-
 # Add QC parameters to metadata
 new_metadata["min_read_coverage"] = str(read_cov)
 new_metadata["min_allele_coverage"] = str(allele_cov)
@@ -226,9 +215,10 @@ new_metadata['Ploidy_Fail_Sites'] = str(int(ploidy_fail_df.height))
 
 # Save final calls
 final_metadata = {k.encode(): v.encode() for k, v in new_metadata.items()}
-
-arrow = combined_df.to_arrow()
-new_schema = arrow.schema.with_metadata(final_metadata)
-arrow = arrow.cast(new_schema)
-
+arrow = (
+    pl.concat([fixed_df, het_df, ploidy_fail_df])
+      .sort(["contig_index", "contig_position"])
+      .to_arrow()
+)
+arrow = arrow.cast(arrow.schema.with_metadata(final_metadata))
 pq.write_table(arrow, output_parquet, compression="snappy")

@@ -9,6 +9,9 @@ import shutil
 import subprocess
 import csv
 
+fixed_codes = {1, 2, 3, 4, 16}
+het_codes = set(range(5, 16)) | set(range(17, 32))
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Create scaffold parquet from called base files")
     
@@ -34,12 +37,12 @@ def fetch_base_parquets(file_path):
 
     return paths
 
-def save_scaffold_parquet(sorted_parquet_paths, output_parquet, batch_size=1000):
+def save_scaffold_parquet(parquet_paths, output_parquet, batch_size=1000):
 
     seen = set()
 
-    for i in range(0, len(sorted_parquet_paths), batch_size):
-        batch = sorted_parquet_paths[i:i + batch_size]
+    for i in range(0, len(parquet_paths), batch_size):
+        batch = parquet_paths[i:i + batch_size]
 
         df = pl.concat(
             [pl.scan_parquet(p).select(['contig_index', 'contig_position'])
@@ -93,19 +96,11 @@ if os.path.exists(output_parquet):
 
 # endregion
 
-# region 01: Fetch called base files
-
-called_base_files = fetch_base_parquets(called_base_file)
-sample_id_paths = [(os.path.basename(path).replace("_Called.parquet", ""), path) for path in called_base_files]
-sorted_path_sample_pairs = natsorted(sample_id_paths, key=lambda x: x[0])
-sorted_samples, sorted_parquet_paths = zip(*sorted_path_sample_pairs)
-
-# endregion
-
-# region 02: Save scaffold file
+# region 01: Save scaffold file
 
 try:
-    save_scaffold_parquet(sorted_parquet_paths,output_parquet)
+    called_base_files = fetch_base_parquets(called_base_file)
+    save_scaffold_parquet(called_base_files,output_parquet)
 except Exception as e:
     sys.exit(f"ERROR creating scaffold: {e}")
 

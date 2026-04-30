@@ -11,6 +11,7 @@ def parse_args():
     # Read in inputs
     parser.add_argument("--fasta", dest="fasta_file", type=str, default=None, help="Path to reference FASTA file")
     parser.add_argument("--parquet", dest="parquet_file", type=str, default=None, help="Path to reference parquet file")
+    parser.add_argument("--cpu_count", dest="cpu_count", type=int, default=1, help="CPU count (used to chunk data when converting BAM to parquet; Default: 1)")
 
     # Generate output
     parser.add_argument("--make_parquet", dest="make_parquet", action="store_true", help="Create reference parquet with contig ID, index, and length from FASTA (requires --fasta)")
@@ -22,7 +23,6 @@ def parse_args():
 
     return parser.parse_args()
 
-
 def read_input_values(request):
     if os.path.isfile(request):
         with open(request) as f:
@@ -30,6 +30,26 @@ def read_input_values(request):
     else:
         return [request]
 
+def write_contig_bed(contigs, contig_lengths, bed_path, fai_path):
+
+    with open(fai_path) as f:
+        fai_order = [line.split('\t')[0] for line in f]
+
+    order_index = {name: i for i, name in enumerate(fai_order)}
+
+    try:
+        sorted_contigs = sorted(contigs, key=lambda c: order_index[c])
+    except KeyError as missing:
+        sys.exit(f"ERROR: contig '{missing.args[0]}' not found in .fai file")
+
+    with open(bed_path, "w") as bed:
+        for contig in sorted_contigs:
+            length = contig_lengths.get(contig)
+            if length is None:
+                sys.exit(f"ERROR: contig '{contig}' not found in contig_lengths")
+
+            bed.write(f"{contig}\t0\t{length}\n")
+            
 args = parse_args()
 
 # Check run modes
@@ -41,10 +61,14 @@ if args.make_parquet and not args.fasta_file:
 
 # Process FASTA file
 if args.fasta_file:  
+    
     fasta_file = os.path.abspath(args.fasta_file)
-
+    fai_file = fasta_file + ".fai"
+    
     if not os.path.exists(fasta_file):
         sys.exit(f"{fasta_file} does not exist...")
+    elif not os.path.exists(fai_file):
+        sys.exit(f"{fai_file} does not exist...")
 
     fasta_name = os.path.splitext(os.path.basename(fasta_file))[0]
     data_dir = os.path.dirname(fasta_file)
@@ -91,14 +115,42 @@ elif args.parquet_file:
 else:
     sys.exit("You must provide either --fasta_file or --parquet_file.")
 
+# If making the parquet, also make the chunked BED files for mpileup
 if args.make_parquet:
+    
     out_parquet = os.path.join(data_dir,fasta_name+".parquet")
-    df.to_parquet(out_parquet, index=False,compression = "snappy")
+    bed_dir = os.path.join(data_dir,"BED_Chunks")
+
+    if os.path.exists(out_parquet):
+        sys.exit(f"Output file {out_parquet} exists...")
+    elif os.path.exists(bed_dir):
+        sys.exit(f"BED directory {bed_dir} exists...")
+    else:
+        df.to_parquet(out_parquet, index=False,compression = "snappy")
+        os.mkdir(bed_dir)
+
+    contig_lengths = {
+        rec_id.split()[0]: len(seq)
+        for rec_id, seq in raw_records
+    }
+
+    len_sorted_records = sorted(raw_records, key=lambda x: len(x[1]), reverse=True)
+    len_sorted_contig_ids = [rec_id.split()[0] for rec_id, _ in len_sorted_records]
+
+    contig_count = len(contig_ids)
+    n_chunks = min(contig_count, args.cpu_count)
+    contig_chunks = [[] for _ in range(n_chunks)]
+
+    for i, contig in enumerate(len_sorted_contig_ids):
+        contig_chunks[i % n_chunks].append(contig)
+    
+    for i, chunk in enumerate(contig_chunks):
+        bed_path = os.path.join(bed_dir,f"Chunk_{i}.bed")
+        write_contig_bed(chunk, contig_lengths, bed_path, fai_file)
 
 if args.make_tsv:
     out_tsv = os.path.join(data_dir,fasta_name+".tsv")
     df.to_csv(out_tsv, sep="\t", index=False)
-    print(f"[✔] Wrote contig table to {out_tsv}")
 
 if args.index is not None:
     index_values = read_input_values(str(args.index))
