@@ -146,9 +146,14 @@ include {fetchRawParquet} from "./subworkflows/convert_bam/main.nf"
 include {callBases} from "./subworkflows/call_bases/main.nf"
 include {fetchCalledBases} from "./subworkflows/call_bases/main.nf"
 
+include {generateScaffold} from "./subworkflows/join_parquets/main.nf"
+include {fetchScaffold} from "./subworkflows/join_parquets/main.nf"
+
+
 include {joinCalledBases} from "./subworkflows/join_parquets/main.nf"
 include {joinFromCSV} from "./subworkflows/join_parquets/main.nf"
 include {fetchJoin} from "./subworkflows/join_parquets/main.nf"
+
 
 include {filterJoined} from "./subworkflows/filter_joined/main.nf"
 include {fetchFiltered} from "./subworkflows/filter_joined/main.nf"
@@ -171,6 +176,10 @@ workflow{
     map_file = (params.map_reads) ? "${file(params.map_reads)}" : ""
     raw_parquet_file = (params.raw_parquets) ? "${file(params.raw_parquets)}" : ""
     called_base_file = (params.called_bases) ? "${file(params.called_bases)}" : ""
+    scaffold_file = (params.scaffold) ? "${file(params.scaffold)}" : ""
+
+
+    // OLD
     joined_file = (params.joined) ? "${file(params.joined)}" : ""
     join_csv_file = (params.join_csv) ? "${file(params.join_csv)}" : ""
 
@@ -206,20 +215,15 @@ workflow{
     new_called_base_data = (params.ploidy) ? callBases(raw_parquet_data) : Channel.empty()
     called_bases_data = new_called_base_data.concat(existing_called_base_data) | collect | flatten | collate(2)
 
-    ///////////////////////////////////// JOIN CALLED BASES ///////////////////////////////////////////
+    ////////////////////////////////// GENERATE/FETCH JOINED SCAFFOLD ////////////////////////////////////
 
-    joined_data = Channel.empty()
+    scaffold_data = Channel.empty()
 
-    if(params.joined){
-        joined_data = fetchJoin(joined_file)
+    if(params.scaffold){
+        scaffold_data = fetchScaffold(scaffold_file)
     } else if(params.join_id){
-        joined_data = joinCalledBases(called_bases_data)
-    } else if(params.join_csv){
-        joined_data = joinFromCSV(join_csv_file)
+        scaffold_data = generateScaffold(called_bases_data)
     }
-
-    joined_data.view()
-
 
 
 
@@ -235,27 +239,27 @@ workflow{
 
     ///////////////////////////////////// FILTER JOINED DATA //////////////////////////////////////////
 
-    if(params.filtered){
-        filtered_data = fetchFiltered(params.filtered) 
-    } else if(params.filter){
-        filtered_data = filterJoined(joined_data)
-    }
+    //if(params.filtered){
+    //    filtered_data = fetchFiltered(params.filtered) 
+    //} else if(params.filter){
+    //    filtered_data = filterJoined(joined_data)
+    //}
 
     ///////////////////////////////////// GET ALIGNMENT ///////////////////////////////////////////////
 
-    if(params.alignment_file){
-        alignment_file = Channel.fromPath(params.alignment_file) 
-    } else if(params.alignment){
-        alignment_file = getAlignment(filtered_data) | collect | flatten | collate(1)
-    }
+    //if(params.alignment_file){
+    //    alignment_file = Channel.fromPath(params.alignment_file) 
+    //} else if(params.alignment){
+    //    alignment_file = getAlignment(filtered_data) | collect | flatten | collate(1)
+    //}
 
     //////////////////////////////////////// GET TREE /////////////////////////////////////////////////
 
-    if(params.tree_file){
-        tree_file = Channel.fromPath(params.tree_file) 
-    } else if(params.tree){
-        tree_file = filtered_data.combine(alignment_file) | generateTree | collect | flatten | collate(1)
-    }
+    //if(params.tree_file){
+    //    tree_file = Channel.fromPath(params.tree_file) 
+    //} else if(params.tree){
+    //    tree_file = filtered_data.combine(alignment_file) | generateTree | collect | flatten | collate(1)
+    //}
     
     //////////////////////////////////////// GET SNPS //////////////////////////////////////////////////
 
