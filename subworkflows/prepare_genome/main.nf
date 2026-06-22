@@ -33,6 +33,8 @@ workflow assembleGenome{
 
     main:
  
+    // TO DO: If providing manual counts, get read information from that file
+
     // Sample_ID, Group_0, Group_1, Forward, Reverse
     input_pangenome_reads = FETCH_PG_READS(pg_reads,genome_directory,genome_name) | splitCsv
 
@@ -106,7 +108,7 @@ process COUNT_BASES {
 
     tag "Count_${sample_id}"
 
-    cpus count_cpu
+    cpus 1
 
     input:
     tuple val(sample_id), val(forward_read), val(reverse_read), val(genome_dir), val(genome_name)
@@ -119,8 +121,8 @@ process COUNT_BASES {
     genome_prep_directory = file("${genome_dir}/Prep_${genome_name}")
     
     stats_cmd = reverse_read 
-    ? "seqkit stats -j $count_cpu -a -T ${forward_read} ${reverse_read}" 
-    : "seqkit stats -j $count_cpu -a -T ${forward_read}"
+    ? "seqkit stats -j 1 -a -T ${forward_read} ${reverse_read}" 
+    : "seqkit stats -j 1 -a -T ${forward_read}"
 
     """
     output=\$(${stats_cmd})
@@ -166,8 +168,8 @@ process CALCULATE_SUBSETS{
 
     script:
 
-    calculate_sub_script = file("${projectDir}/bin/calculateSubset.py")
-    
+    //calculate_sub_script = file("${projectDir}/bin/calculateSubset.py")
+    calculate_sub_script = file("/flash/storage/scratch/Robert.Literman/NextFlow/SNPRS/bin/manual/calculateSubset.py")
     genome_prep_directory = file("${genome_dir}/Prep_${genome_name}")
     subset_directory = file("${genome_prep_directory}/Subset_Reads")
     group_file = file("${genome_prep_directory}/Read_Groups.csv")
@@ -204,8 +206,8 @@ process SUBSET_READS {
     log_file = "${subset_directory}/out_Subsample_${sample_id}"
 
     reformat_cmd = reverse_read
-        ? "reformat.sh in=${forward_read} in2=${reverse_read} out=${out1} out2=${out2} outs=${outs} samplebasestarget=${allocated} tossjunk=t &> ${log_file}"
-        : "reformat.sh in=${forward_read} out=${outs} samplebasestarget=${allocated} tossjunk=t &> ${log_file}"
+        ? "reformat.sh in=${forward_read} in2=${reverse_read} out=${out1} out2=${out2} outs=${outs} samplereadstarget=${allocated} tossjunk=t &> ${log_file}"
+        : "reformat.sh in=${forward_read} out=${outs} samplereadstarget=${allocated} tossjunk=t &> ${log_file}"
 
     """
     $reformat_cmd
