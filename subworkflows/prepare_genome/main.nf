@@ -135,7 +135,7 @@ process SAVE_BASE_COUNTS{
     
     executor = "local"
     cpus 1
-    maxForks 1
+    maxForks 10
     
     input:
     tuple val(sample_id),val(read_count),val(base_count),val(forward_read),val(reverse_read),val(genome_prep_directory)
@@ -242,7 +242,7 @@ process LINK_READS {
 
     executor = "local"
     cpus 1
-    maxForks 1
+    maxForks 10
 
     input:
     tuple val(sample_id), val(subsample_id),val(forward_read),val(reverse_read),val(subset_dir)
