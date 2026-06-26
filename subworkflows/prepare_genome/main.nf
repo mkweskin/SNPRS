@@ -64,6 +64,7 @@ workflow assembleGenome{
 
 process FETCH_PG_READS{
 
+    executor = "local"
     cpus = 1
     maxForks = 1
 
