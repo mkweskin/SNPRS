@@ -132,8 +132,10 @@ process COUNT_BASES {
 }
 
 process SAVE_BASE_COUNTS{
-
+    
+    executor = "local"
     cpus 1
+    maxForks 1
     
     input:
     tuple val(sample_id),val(read_count),val(base_count),val(forward_read),val(reverse_read),val(genome_prep_directory)
@@ -153,7 +155,9 @@ process SAVE_BASE_COUNTS{
 
 process CALCULATE_SUBSETS{
 
-    cpus = 1
+    executor = "local"
+    cpus 1
+    maxForks 1
 
     input:
     val(base_count_file)
@@ -235,7 +239,10 @@ process SUBSET_READS {
 }
 
 process LINK_READS {
+
+    executor = "local"
     cpus 1
+    maxForks 1
 
     input:
     tuple val(sample_id), val(subsample_id),val(forward_read),val(reverse_read),val(subset_dir)
