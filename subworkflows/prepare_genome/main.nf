@@ -64,7 +64,6 @@ workflow assembleGenome{
 
 process FETCH_PG_READS{
 
-    executor = 'local'
     cpus = 1
     maxForks = 1
 
@@ -134,7 +133,6 @@ process COUNT_BASES {
 
 process SAVE_BASE_COUNTS{
 
-    executor = 'local'
     cpus 1
     
     input:
@@ -155,7 +153,6 @@ process SAVE_BASE_COUNTS{
 
 process CALCULATE_SUBSETS{
 
-    executor = 'local'
     cpus = 1
 
     input:
@@ -239,7 +236,6 @@ process SUBSET_READS {
 
 process LINK_READS {
     cpus 1
-    executor = "local"
 
     input:
     tuple val(sample_id), val(subsample_id),val(forward_read),val(reverse_read),val(subset_dir)
