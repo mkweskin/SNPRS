@@ -29,6 +29,7 @@ def parse_args():
     parser.add_argument("--parquets", dest="chunk_parquets", type=str, required=True,help="Path to directory with called base parquets, or path to a file with 1+ paths called base parquets")
     parser.add_argument("--out", dest="scaffold_file", type=str, required=True,help="Path to output file")
     parser.add_argument("--batch", dest="batch_size", type=int, default=1,help="Batch size for data processing")
+    parser.add_argument("--join_id", dest="join_id", type=str, default=None,help="ID for join (leave empty to not delete temp files)")
     return parser.parse_args()
 
 # region 00: Parse args and set up directories
@@ -70,24 +71,37 @@ for batch in batches[1:]:
         .sum()
     )
     
-    print(batch_count)
-
 cols = ["a", "c", "g", "t", "gap"]
 
-(
-    acc
-    .with_columns([
-        (pl.col("key") // (2**32)).cast(pl.Int32).alias("contig_index"),
-        (pl.col("key") & (2**32 - 1)).cast(pl.Int32).alias("contig_position"),
-    ])
-    .with_columns([
-        pl.sum_horizontal([pl.col(col) >= 2 for col in cols]).alias("pi_alleles"),
-        pl.sum_horizontal([pl.col(col) == 1 for col in cols]).alias("sing_count"),
-        pl.sum_horizontal(pl.col(cols)).alias("fixed")
-    ])
-    .sort(['contig_index','contig_position'])
-    .select([
-        'contig_index','contig_position','cov','fixed','het','pf','pi_alleles','a','c','g','t','gap'
-    ])
-    .write_parquet(output_parquet, compression="snappy")
-)
+try:
+    (
+        acc
+        .with_columns([
+            (pl.col("key") // (2**32)).cast(pl.Int32).alias("contig_index"),
+            (pl.col("key") & (2**32 - 1)).cast(pl.Int32).alias("contig_position"),
+        ])
+        .with_columns([
+            pl.sum_horizontal([pl.col(col) >= 2 for col in cols]).alias("pi_alleles"),
+            pl.sum_horizontal([pl.col(col) == 1 for col in cols]).alias("sing_count"),
+            pl.sum_horizontal(pl.col(cols)).alias("fixed")
+        ])
+        .sort(['contig_index','contig_position'])
+        .select([
+            'contig_index','contig_position','cov','fixed','het','pf','pi_alleles','a','c','g','t','gap'
+        ])
+        .write_parquet(output_parquet, compression="snappy")
+    )
+except:
+    raise Exception("lolwut")
+else:
+    if args.join_id:
+        join_id = args.join_id
+        output_directory = Path(output_parquet).parent
+        chunk_file = Path(os.path.join(output_directory,f"{join_id}_Chunk_Parquets.txt"))
+        
+        if chunk_file.exists():
+            chunk_file.unlink()
+            
+        for temp_dir in output_directory.glob(f"Temp_{join_id}_*"):
+            if temp_dir.is_dir():
+                shutil.rmtree(temp_dir)
