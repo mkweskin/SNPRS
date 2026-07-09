@@ -119,15 +119,6 @@ if(check_nonos()){
     genome_directory = genome_directory.toString()
     mapping_directory = file("${snprs_directory}/Mapping").toString()
     joined_directory = file("${snprs_directory}/Joined").toString()
-    snp_group_directory = file("${snprs_directory}/SNP_Groups").toString()
-
-    params.final_snprs_directory = snprs_directory
-    params.final_genome_directory = snprs_directory
-    params.final_mapping_directory = snprs_directory
-    params.final_joined_directory = snprs_directory
-    params.final_snp_directory = snprs_directory
-    params.final_classified_directory = snprs_directory
-
 }
 
 // Import subworkflows
@@ -149,24 +140,6 @@ include {fetchCalledBases} from "./subworkflows/call_bases/main.nf"
 include {generateScaffold} from "./subworkflows/join_parquets/main.nf"
 include {fetchScaffold} from "./subworkflows/join_parquets/main.nf"
 
-
-include {joinCalledBases} from "./subworkflows/join_parquets/main.nf"
-include {joinFromCSV} from "./subworkflows/join_parquets/main.nf"
-include {fetchJoin} from "./subworkflows/join_parquets/main.nf"
-
-
-include {filterJoined} from "./subworkflows/filter_joined/main.nf"
-include {fetchFiltered} from "./subworkflows/filter_joined/main.nf"
-
-include {getAlignment} from "./subworkflows/alignment_tools/main.nf"
-
-include {fetchTree} from "./subworkflows/tree_tools/main.nf"
-include {makeSplitTable} from "./subworkflows/tree_tools/main.nf"
-include {makeSNPGroups} from "./subworkflows/tree_tools/main.nf"
-include {generateTree} from "./subworkflows/tree_tools/main.nf"
-
-include {generateSNPs} from "./subworkflows/snp_tools/main.nf"
-
 workflow{
 
     // File-ize inputs
@@ -177,11 +150,6 @@ workflow{
     raw_parquet_file = (params.raw_parquets) ? "${file(params.raw_parquets)}" : ""
     called_base_file = (params.called_bases) ? "${file(params.called_bases)}" : ""
     scaffold_file = (params.scaffold) ? "${file(params.scaffold)}" : ""
-
-
-    // OLD
-    joined_file = (params.joined) ? "${file(params.joined)}" : ""
-    join_csv_file = (params.join_csv) ? "${file(params.join_csv)}" : ""
 
     ////////////////////////////////////// GENERATE/FETCH GENOME //////////////////////////////////////
 
