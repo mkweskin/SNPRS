@@ -118,18 +118,10 @@ process COMPILE_SCAFFOLD{
     output_file = file("${joined_dir}/${join_id}_Scaffold.parquet")
 
     """
-    python ${compile_scaffold_script} --parquets ${chunk_parquet_file} --out ${output_file} --batch ${chunk_size}
+    python ${compile_scaffold_script} --parquets ${chunk_parquet_file} --out ${output_file} --batch ${chunk_size} --join_id ${joined_id}
     echo -n "${output_file}"
     """
 }
-
-
-
-
-
-
-
-
 
 workflow joinCalledBases{
     
