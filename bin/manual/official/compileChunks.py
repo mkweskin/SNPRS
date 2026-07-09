@@ -29,7 +29,8 @@ def parse_args():
     parser.add_argument("--parquets", dest="chunk_parquets", type=str, required=True,help="Path to directory with called base parquets, or path to a file with 1+ paths called base parquets")
     parser.add_argument("--out", dest="scaffold_file", type=str, required=True,help="Path to output file")
     parser.add_argument("--batch", dest="batch_size", type=int, default=1,help="Batch size for data processing")
-    parser.add_argument("--join_id", dest="join_id", type=str, default=None,help="ID for join (leave empty to not delete temp files)")
+    parser.add_argument("--join_id", dest="join_id", type=str, required=True,help="ID for join")
+    parser.add_argument("--keep_temp", action="store_true",help="Do not delete temp files")
     return parser.parse_args()
 
 # region 00: Parse args and set up directories
@@ -37,6 +38,15 @@ args = parse_args()
 parquet_file = os.path.abspath(args.chunk_parquets)
 output_parquet = os.path.abspath(args.scaffold_file)
 
+output_directory = Path(output_parquet).parent
+join_id = args.join_id
+
+called_base_file = Path(os.path.join(output_directory,f"{join_id}_Called_Bases.txt"))
+chunk_file = Path(os.path.join(output_directory,f"{join_id}_Chunk_Parquets.txt"))
+
+with open(called_base_file, 'r') as f:
+    sample_count = len(f.readlines())
+    
 with open(parquet_file, "r") as f:
     batch_files = [line.strip() for line in f if line.strip()]
 
@@ -74,6 +84,7 @@ for batch in batches[1:]:
 cols = ["a", "c", "g", "t", "gap"]
 
 try:
+
     (
         acc
         .with_columns([
@@ -85,20 +96,23 @@ try:
             pl.sum_horizontal([pl.col(col) == 1 for col in cols]).alias("sing_count"),
             pl.sum_horizontal(pl.col(cols)).alias("fixed")
         ])
+        .with_columns(
+            uncovered=(pl.lit(sample_count) - pl.col("cov"))
+        )
         .sort(['contig_index','contig_position'])
         .select([
-            'contig_index','contig_position','cov','fixed','het','pf','pi_alleles','a','c','g','t','gap'
+            'contig_index','contig_position','cov','uncovered','fixed','het','pf','pi_alleles','a','c','g','t','gap'
         ])
+
         .write_parquet(output_parquet, compression="snappy")
     )
+    
 except:
     raise Exception("lolwut")
 else:
-    if args.join_id:
-        join_id = args.join_id
-        output_directory = Path(output_parquet).parent
-        chunk_file = Path(os.path.join(output_directory,f"{join_id}_Chunk_Parquets.txt"))
-        
+    
+    if not args.keep_temp:
+            
         if chunk_file.exists():
             chunk_file.unlink()
             
