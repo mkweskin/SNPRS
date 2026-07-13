@@ -178,3 +178,45 @@ process FILTER_SCAFFOLD{
     python $filter_script --in $scaffold_file --filter_id $filter_id $cov_arg $fixed_arg $het_arg $ploidy_arg $clade_arg $allele_arg $no_gap_arg $no_sing_arg $no_het_arg
     """
 }
+
+workflow calledToInt{
+
+    take:
+    to_call
+
+    emit:
+    integer_directory
+    
+    main:
+
+    to_convert = combine
+
+    integer_directory = CALLED_TO_INT(to_call) 
+    | collect
+    | flatten
+    | collate(1)
+    | first()
+}
+
+process CALLED_TO_INT{
+
+    cpus 1
+    executor "slurm"
+    memory  "1G"
+
+    input:
+    tuple val(sample_id),val(called_base),val(scaffold_file),val(int_directory)
+
+    output:
+    stdout
+
+    script:
+    
+    called_to_int_script = file("${projectDir}/bin/manual/semioffiicial/called2int.py")
+
+    """
+    mkdir -p $int_directory
+    python $called_to_int_script --scaffold $scaffold_file --called $called_base --out $int_directory --sample_id $sample_id
+    echo -n $int_directory
+    """
+}

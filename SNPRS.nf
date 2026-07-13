@@ -140,6 +140,8 @@ include {fetchCalledBases} from "./subworkflows/call_bases/main.nf"
 include {generateScaffold} from "./subworkflows/join_parquets/main.nf"
 include {fetchScaffold} from "./subworkflows/join_parquets/main.nf"
 include {filterScaffold} from "./subworkflows/join_parquets/main.nf"
+include {calledToInt} from "./subworkflows/join_parquets/main.nf"
+
 
 workflow{
 
@@ -188,13 +190,22 @@ workflow{
     scaffold_file = Channel.empty()
 
     if(params.scaffold){
-        scaffold_file = file(params.scaffold)
+        scaffold_file = Channel.from(file(params.scaffold))
     } else if(params.join_id){
         scaffold_file = generateScaffold(called_bases_data)
     }
 
     if(params.filter_id){
         filter_file = filterScaffold(scaffold_file)
+    }
+
+    if(params.int_dir){
+        int_dir = Channel.from(file(params.int_dir))
+        
+        int_directory = called_bases_data
+        .combine(scaffold_file)
+        .combine(int_dir)
+        | calledToInt
     }
 }
 

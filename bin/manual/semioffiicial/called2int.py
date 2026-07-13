@@ -12,18 +12,19 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Score chunk of scaffold")    
     parser.add_argument("--called", dest="called_parquet", type=str, required=True,help="Path to called base parquet")
     parser.add_argument("--scaffold", dest="scaffold_parquet", type=str, required=True,help="Path to scaffold base parquet")
+    parser.add_argument("--out", dest="out_dir", type=str, required=True,help="Path to output directory")
+    parser.add_argument("--sample_id", dest="sample_id", type=str, required=True,help="Name for output file")
+    
     return parser.parse_args()
 
 args = parse_args()
 
-sample_name = os.path.basename(args.called_parquet)
-if sample_name.endswith("_Called.parquet"):
-    sample_name = sample_name.replace("_Called.parquet", "")
-else:
-    sample_name = sample_name.replace(".parquet", "")
+sample_name = args.sample_id
+output_directory = os.path.abspath(args.out_dir)
 
-out_path = f"{sample_name}.bin"
-
+out_path = os.path.join(output_directory,f"{sample_name}.bin")
+if os.path.exists(out_path):
+    sys.exit(f"{out_path} already exists...")
     
 site_info = pl.scan_parquet(args.scaffold_parquet).select(['contig_index','contig_position'])
 called_info = pl.scan_parquet(args.called_parquet).select(['contig_index','contig_position','base_code'])
@@ -34,7 +35,7 @@ joined = (
     .with_columns(
         pl.when(pl.col("base_code").is_null())
         .then(0)
-        .when(pl.col("base_code").is_in([1,2,3,4,16]))
+        .when(pl.col("base_code").is_in([1,2,3,4,16])) # NOT CATCHING HETS
         .then(pl.col("base_code"))
         .otherwise(-1)
         .cast(pl.Int8)
