@@ -12,6 +12,7 @@ def called_base_directory = file("${mapping_directory}/Base_Calls")
 def join_directory = file("${params.out}/Joined")
 def join_id = (params.join_id) ? "${params.join_id}" : ""
 
+// Filtering
 def filter_id = (params.filter_id) ? "${params.filter_id}" : ""
 
 workflow generateScaffold{
@@ -134,5 +135,46 @@ workflow fetchScaffold{
     scaffold_info
     
     main:
-    scaffold_info = file(scaffold_file) | collect | flatten | collate(1)
+    scaffold_info = scaffold_file
+}
+
+workflow filterScaffold{
+
+    take:
+    scaffold_file
+
+    emit:
+    filtered_file
+    
+    main:
+    filtered_file = FILTER_SCAFFOLD(scaffold_file) | collect | flatten | collate(1)
+}
+
+process FILTER_SCAFFOLD{
+
+    cpus 1
+
+    input:
+    val(scaffold_file)
+
+    output:
+    stdout
+
+    script:
+    
+    filter_script = file("${projectDir}/bin/manual/semioffiicial/join_tools/filter_scaffold.py")
+
+    cov_arg = (params.min_cov) ? " --covered ${params.min_cov}" : ""
+    fixed_arg = (params.min_fix) ? " --fixed ${params.min_fix}" : ""
+    het_arg = (params.min_het) ? " --het ${params.min_het}" : ""
+    ploidy_arg = (params.max_pf) ? " --ploidy ${params.max_pf}" : ""
+    clade_arg = (params.min_clade) ? " --min_clade ${params.min_clade}" : ""
+    allele_arg = ("${params.alleles}") ? " --alleles ${params.alleles}" : ""
+    no_gap_arg = (params.no_gaps) ? " --no_gap": ""
+    no_sing_arg = (params.no_sing) ? " --no_sing": ""
+    no_het_arg = (params.no_het) ? " --no_het": ""
+
+    """
+    python $filter_script --in $scaffold_file --filter_id $filter_id $cov_arg $fixed_arg $het_arg $ploidy_arg $clade_arg $allele_arg $no_gap_arg $no_sing_arg $no_het_arg
+    """
 }
