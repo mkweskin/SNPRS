@@ -139,6 +139,7 @@ include {fetchCalledBases} from "./subworkflows/call_bases/main.nf"
 
 include {generateScaffold} from "./subworkflows/join_parquets/main.nf"
 include {fetchScaffold} from "./subworkflows/join_parquets/main.nf"
+include {filterScaffold} from "./subworkflows/join_parquets/main.nf"
 
 workflow{
 
@@ -149,7 +150,6 @@ workflow{
     map_file = (params.map_reads) ? "${file(params.map_reads)}" : ""
     raw_parquet_file = (params.raw_parquets) ? "${file(params.raw_parquets)}" : ""
     called_base_file = (params.called_bases) ? "${file(params.called_bases)}" : ""
-    scaffold_file = (params.scaffold) ? "${file(params.scaffold)}" : ""
 
     ////////////////////////////////////// GENERATE/FETCH GENOME //////////////////////////////////////
 
@@ -185,14 +185,18 @@ workflow{
 
     ////////////////////////////////// GENERATE/FETCH JOINED SCAFFOLD ////////////////////////////////////
 
-    scaffold_data = Channel.empty()
+    scaffold_file = Channel.empty()
 
     if(params.scaffold){
-        scaffold_data = fetchScaffold(scaffold_file)
+        scaffold_file = file(params.scaffold)
     } else if(params.join_id){
-        scaffold_data = generateScaffold(called_bases_data)
+        scaffold_file = generateScaffold(called_bases_data)
     }
 
+    if(params.filter_id){
+        filter_file = filterScaffold(scaffold_file)
+    }
+}
 
 
 
@@ -234,4 +238,3 @@ workflow{
 
 
 
-}   
