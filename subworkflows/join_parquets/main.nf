@@ -15,6 +15,9 @@ def join_id = (params.join_id) ? "${params.join_id}" : ""
 // Filtering
 def filter_id = (params.filter_id) ? "${params.filter_id}" : ""
 
+// Distances
+def dist_id = (params.dist_id) ? "${params.dist_id}" : ""
+
 workflow generateScaffold{
     
     take:
@@ -179,44 +182,165 @@ process FILTER_SCAFFOLD{
     """
 }
 
-workflow calledToInt{
+workflow getDistance{
 
     take:
-    to_call
+    called_bases_data
+    scaffold_file
 
     emit:
-    integer_directory
+    final_phylip
     
     main:
 
-    to_convert = combine
+    sample_count = called_bases_data.map { it.size() }
 
-    integer_directory = CALLED_TO_INT(to_call) 
-    | collect
-    | flatten
-    | collate(1)
-    | first()
+    blank_data = CREATE_MATRIX(scaffold_file,sample_count,dist_id) 
+    | splitCsv | collect | flatten | collate(4)
+
+    called_base_file = blank_data.combine(called_bases_data)
+    .map { output_directory, scaffold, matrix, list, sample_id, called_base_path ->
+        def out = file("${list}")
+        out << "${called_base_path}\n"
+        return out
+    }.last()
+    
+    chunk_file = called_base_file.combine(blank_data) | CHUNK_DATA | splitCsv | collect | flatten | collate(1)
+
+    chunk_ids = chunk_file.combine(called_bases_data).combine(blank_data) | POPULATE_MATRIX | unique | collect | flatten | collate(1)
+
+    chunked_dist = chunk_ids.combine(blank_data).combine(chunk_file) | CHUNK_DIST | collect | flatten | collate(1) | last()
+
+    final_phylip = blank_data.combine(chunked_dist).combine(chunk_file) | CREATE_PHY
+
+    final_tree = RUN_RAPIDNJ(final_phylip)
 }
 
-process CALLED_TO_INT{
+process CREATE_MATRIX{
 
     cpus 1
     executor "slurm"
     memory  "1G"
 
     input:
-    tuple val(sample_id),val(called_base),val(scaffold_file),val(int_directory)
+    val(scaffold_file)
+    val(sample_count)
+    val(dist_id)
 
     output:
     stdout
 
     script:
     
-    called_to_int_script = file("${projectDir}/bin/manual/semioffiicial/called2int.py")
+    create_matrix_script = file("${projectDir}/bin/manual/semioffiicial/join_tools/createMatrix.py")
+    def scaffold_dir = file("${scaffold_file}").getParent()
+    def output_dir = file("${scaffold_dir}/${dist_id}")
 
     """
-    mkdir -p $int_directory
-    python $called_to_int_script --scaffold $scaffold_file --called $called_base --out $int_directory --sample_id $sample_id
-    echo -n $int_directory
+    mkdir -p $output_dir &&
+    python $create_matrix_script -s $scaffold_file -n $dist_id -c $sample_count
+    """
+}
+
+process CHUNK_DATA{
+
+    executor "local"
+    cpus 1
+
+    input:
+    tuple val(called_base_file), val(output_directory),val(scaffold_file),val(matrix_file),val(list)
+
+    output:
+    stdout
+
+    script:
+    
+    chunk_sample_script = file("${projectDir}/bin/manual/semioffiicial/join_tools/chunkSamples.py")
+
+    """
+    python $chunk_sample_script -c $called_base_file -s $chunk_size -n $dist_id
+    """
+}
+
+process POPULATE_MATRIX{
+
+    executor "slurm"
+    cpus 1
+    memory "1G"
+
+    input:
+    tuple val(chunk_file),val(sample_id),val(called_base_file),val(output_directory),val(scaffold_file),val(matrix_file),val(list)
+
+    output:
+    stdout
+
+    script:
+    
+    pop_matrix_script = file("${projectDir}/bin/manual/semioffiicial/join_tools/populateMatrix.py")
+    """
+    python $pop_matrix_script -i $sample_id -b $called_base_file -m $matrix_file -c $chunk_file -s $scaffold_file
+    """
+}
+
+process CHUNK_DIST{
+
+    executor "slurm"
+    cpus cpu
+
+    input:
+    tuple val(chunk_id),val(output_directory),val(scaffold_file),val(matrix_file),val(list),val(chunk_file)
+
+    output:
+    stdout
+
+    script:
+    
+    chunk_dist_script = file("${projectDir}/bin/manual/semioffiicial/join_tools/batch_dist_worker.py")
+    output_file = file("${output_directory}/Chunk_Dist_${chunk_id}.npy")
+
+    raw_arg = (params.raw) ? " --raw" : ""
+
+    """
+    python $chunk_dist_script --chunk_id $chunk_id --chunk_size $chunk_size --chunk_file $chunk_file --out $output_file --processors $cpu --scaffold $scaffold_file --matrix $matrix_file $raw_arg --out_dir $output_directory
+    """
+}
+
+process CREATE_PHY{
+
+    executor "slurm"
+    cpus 1
+
+    input:
+    tuple val(output_directory),val(scaffold_file),val(matrix_file),val(list),val(random_dist),val(chunk_file)
+
+    output:
+    stdout
+
+    script:
+    
+    combine_script = file("${projectDir}/bin/manual/semioffiicial/join_tools/combine_phy.py")
+    phylip_file = file("${output_directory}/${dist_id}.phylip")
+    """
+    python $combine_script -i $output_directory -o $phylip_file -c $chunk_file
+    """
+}
+
+process RUN_RAPIDNJ{
+
+    executor "slurm"
+    cpus cpu
+
+    input:
+    val(phylip_file)
+
+    output:
+    stdout
+
+    script:
+    
+    newick_file = "${file(phylip_file).getParent()}/${dist_id}.nwk"
+    """
+    mkdir -p MEM
+    rapidnj -i pd -d ./MEM -c 48 -n -x $newick_file $phylip_file
     """
 }

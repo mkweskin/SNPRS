@@ -2,203 +2,197 @@
 
 import argparse
 import json
-import time
-from multiprocessing import Pool
 import numpy as np
+from multiprocessing import Pool
+import os
+import polars as pl
 
-# ============================================================
-# CONFIG
-# ============================================================
+SAMPLE_BLOCK = 64
+QUERY_BLOCK = 8
 
-BLOCK = 4096
-
-ALL = None
+MATRIX = None
 N = None
 L = None
 
 
-# ============================================================
-# ARGUMENTS
-# ============================================================
-
 def parse_args():
-
     p = argparse.ArgumentParser()
+    p.add_argument("--chunk_file", required=True)
+    p.add_argument("--chunk_size", type=int, required=True)
+    p.add_argument("--chunk_id", type=int, required=True)
 
-    p.add_argument("--json", required=True)
-    p.add_argument("--chunk-id", type=int, required=True)
-    p.add_argument("--chunk-size", type=int, required=True)
+    p.add_argument("--scaffold", required=True)
+    p.add_argument("--matrix", required=True)
+
+
     p.add_argument("--out", required=True)
-    p.add_argument("--processors",type=int,default=16)
+    p.add_argument("--out_dir", required=True)
+
+    p.add_argument("--raw", action="store_true")
+    p.add_argument("--processors", type=int, default=1)
     return p.parse_args()
 
+
 def load_names(path):
-
     names = []
-
     with open(path) as f:
-
         next(f)
-
         for line in f:
-            fields = line.rstrip().split("\t")
-            names.append(fields[2])
-
-    return (names)
-
+            names.append(line.rstrip().split("\t")[2])
+    return names
 
 def init_worker(path, shape):
-
-    global ALL, N, L
-
+    global MATRIX, N, L
     N, L = shape
-
-    ALL = np.memmap(
+    MATRIX = np.memmap(
         path,
         dtype=np.int8,
         mode="r",
         shape=(N, L)
     )
 
-def compute_one(i):
+def compute_chunk(start, end, raw):
 
-    xi = ALL[i]
+    qsize = end - start
 
-    dist = np.zeros(N, dtype=np.float32)
-    cov = np.zeros(N, dtype=np.int32)
+    distances = np.zeros(
+        (qsize, N),
+        dtype=np.float32
+    )
 
-    for s in range(0, L, BLOCK):
+    coverage = np.zeros(
+        (qsize, N),
+        dtype=np.int32
+    )
 
-        e = min(s + BLOCK, L)
+    query = MATRIX[start:end]
 
-        xib = xi[s:e]
-        Xb = ALL[:, s:e]
+    for s in range(start, N, SAMPLE_BLOCK):
 
-        valid = (xib > 0) & (Xb > 0)
+        e = min(s + SAMPLE_BLOCK, N)
 
-        cov += valid.sum(axis=1)
+        block = MATRIX[s:e]
 
-        diff = (Xb != xib) & valid
+        valid = (
+            (query[:, None, :] > 0)
+            &
+            (block[None, :, :] > 0)
+        )
 
-        dist += diff.sum(axis=1)
+        cov = valid.sum(axis=2)
 
-    dist /= np.maximum(cov, 1)
+        diff = (
+            (query[:, None, :] != block[None, :, :])
+            &
+            valid
+        )
 
-    dist[i] = 0.0
+        snps = diff.sum(axis=2)
 
-    return i, dist
+        for q in range(qsize):
+
+            global_q = start + q
+
+            offset_start = max(s, global_q + 1)
+
+            if offset_start < e:
+
+                local_start = offset_start - s
+
+                distances[
+                    q,
+                    offset_start:e
+                ] += snps[
+                    q,
+                    local_start:e-s
+                ]
+
+                coverage[
+                    q,
+                    offset_start:e
+                ] += cov[
+                    q,
+                    local_start:e-s
+                ]
+
+    if not raw:
+        distances /= np.maximum(coverage, 1)
+
+    for i in range(qsize):
+        distances[i, start+i] = 0
+
+    return start, distances
+
+def run_task(args):
+    return compute_chunk(*args)
 
 def main():
 
     args = parse_args()
 
-    with open(args.json) as f:
-        meta = json.load(f)
+    chunk_file = os.path.abspath(args.chunk_file)
+    scaffold_file = os.path.abspath(args.scaffold)
+    matrix_file = os.path.abspath(args.matrix)
+    chunk_id = int(args.chunk_id)
+    chunk_size = int(args.chunk_size)
+    
+    data_dir = os.path.abspath(os.path.dirname(matrix_file))
+    chunk_df = pl.read_csv(chunk_file, separator="\t")
 
-    N = meta["Sample_Count"]
-    L = meta["Alignment_Length"]
-
-    names = load_names(meta["Names_File"])
-
-    start = args.chunk_id * args.chunk_size
-    end = min(start + args.chunk_size, N)
-
-    total = end - start
-
-    print(
-        f"[INFO] Chunk {args.chunk_id}: "
-        f"samples {start:,} - {end-1:,} "
-        f"({total:,} isolates)",
-        flush=True
+    N = chunk_df.height
+    
+    L = (
+        pl.scan_parquet(scaffold_file)
+        .select(pl.len())
+        .collect()
+        .item()
     )
 
-    print(
-        f"[INFO] Matrix shape: "
-        f"{N:,} x {L:,}",
-        flush=True
+    chunk_start = chunk_id * chunk_size
+    chunk_end = min(chunk_start + chunk_size, N)
+
+    tasks = []
+
+    for s in range(chunk_start, chunk_end, QUERY_BLOCK):
+
+        e = min(s + QUERY_BLOCK, chunk_end)
+
+        tasks.append(
+            (s, e, args.raw)
+        )
+
+    results = {}
+
+    with Pool(
+        processes=args.processors,
+        initializer=init_worker,
+        initargs=(
+            matrix_file,
+            (N, L)
+        ),
+        maxtasksperchild=10
+    ) as pool:
+
+        for row_start, dist in pool.imap_unordered(
+            run_task,
+            tasks
+        ):
+
+            results[row_start] = dist
+            
+    blocks = [
+        results[row_start]
+        for row_start in sorted(results)
+    ]
+
+    block = np.vstack(blocks)
+
+    np.save(
+        args.out,
+        block
     )
-
-    print(
-        f"[INFO] CPUs: {args.processors}",
-        flush=True
-    )
-
-    t0 = time.time()
-
-    completed = 0
-
-    with open(args.out, "w", buffering=1024 * 1024) as out:
-
-        with Pool(
-            processes=args.processors,
-            initializer=init_worker,
-            initargs=(
-                meta["Matrix_File"],
-                (N, L)
-            ),
-            maxtasksperchild=500
-        ) as pool:
-
-            for i, dist in pool.imap(
-                compute_one,
-                range(start, end),
-                chunksize=16
-            ):
-
-                out.write(
-                    names[i].ljust(40)[:40]
-                )
-
-                out.write(
-                    " ".join(
-                        f"{x:.6f}"
-                        for x in dist
-                    )
-                )
-
-                out.write("\n")
-
-                completed += 1
-
-                if (
-                    completed % 25 == 0
-                    or completed == total
-                ):
-
-                    elapsed = time.time() - t0
-
-                    rate = completed / max(elapsed, 1)
-
-                    remaining = total - completed
-
-                    eta_seconds = remaining / max(rate, 1e-9)
-
-                    eta_hours = eta_seconds / 3600
-
-                    pct = (
-                        completed
-                        / total
-                        * 100
-                    )
-
-                    print(
-                        f"[Chunk {args.chunk_id}] "
-                        f"{completed:,}/{total:,} "
-                        f"({pct:.1f}%) | "
-                        f"{rate:.2f} isolates/sec | "
-                        f"ETA {eta_hours:.2f} h",
-                        flush=True
-                    )
-
-    elapsed = time.time() - t0
-
-    print(
-        f"[DONE] Chunk {args.chunk_id} "
-        f"completed in "
-        f"{elapsed/3600:.2f} h",
-        flush=True
-    )
-
-
+    
+    print(data_dir,end="")
+        
 if __name__ == "__main__":
     main()

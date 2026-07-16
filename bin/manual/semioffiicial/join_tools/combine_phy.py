@@ -3,75 +3,108 @@
 import argparse
 import glob
 import os
+import tempfile
+import numpy as np
+import polars as pl
 
 def parse_args():
-    p = argparse.ArgumentParser()
-    p.add_argument("--indir",required=True,help="Directory containing dist_*.txt files")
-    p.add_argument("--out",required=True,help="Output PHYLIP file")
+    p = argparse.ArgumentParser(
+        description="Combine distance chunks into a PHYLIP distance matrix."
+    )
+    p.add_argument(
+        "-i", "--input_folder",
+        required=True,
+        help="Folder containing dist_*.npy files"
+    )
+    p.add_argument(
+        "-o", "--out",
+        required=True,
+        help="Output PHYLIP file"
+    )
+    p.add_argument(
+        "-c", "--chunk_file",
+        required=True,
+        help="Output PHYLIP file"
+    )
     return p.parse_args()
-
-
-def chunk_number(path):
-    base = os.path.basename(path)
-    return int(base.split("_")[1].split(".")[0])
 
 
 def main():
 
     args = parse_args()
 
-    files = sorted(
-        glob.glob(os.path.join(args.indir, "dist_*")),
-        key=chunk_number
+    chunk_df = pl.read_csv(args.chunk_file, separator="\t")
+
+    sample_ids = chunk_df["sample_id"].sort().to_list()
+    chunk_ids = set(chunk_df["chunk_id"].sort().to_list())
+
+    input_directory = os.path.abspath(args.input_folder)
+    output_file = os.path.abspath(args.out)
+    files = [os.path.join(input_directory,f"Chunk_Dist_{id}.npy") for id in chunk_ids]
+    
+    if not files:
+        raise RuntimeError("No dist_*.npy files found.")
+    
+    N = len(sample_ids)
+
+    first = np.load(files[0], mmap_mode="r")
+
+    if first.shape[1] != N:
+        raise RuntimeError("Chunk width does not match number of samples.")
+
+    tmp = tempfile.NamedTemporaryFile(delete=False)
+    tmp.close()
+
+    matrix = np.memmap(
+        tmp.name,
+        dtype=np.float32,
+        mode="w+",
+        shape=(N, N)
     )
 
-    if not files:
-        raise RuntimeError("No chunk files found")
+    matrix[:] = 0
 
-    print(f"[INFO] Found {len(files)} chunks")
-
-    n_taxa = 0
+    row = 0
 
     for f in files:
-        with open(f) as fh:
-            for line in fh:
-                if line.strip():
-                    n_taxa += 1
 
-    print(f"[INFO] Total taxa: {n_taxa:,}")
+        block = np.load(f, mmap_mode="r")
 
-    with open(args.out, "w", buffering=1024 * 1024) as out:
+        rows = block.shape[0]
 
-        out.write(f"{n_taxa}\n")
+        matrix[row:row + rows] = block
 
-        written = 0
+        row += rows
 
-        for f in files:
+    if row != N:
+        raise RuntimeError(
+            f"Loaded {row:,} rows but expected {N:,}"
+        )
 
-            print(f"[INFO] Reading {f}")
+    for i in range(N):
+        matrix[i + 1:, i] = matrix[i, i + 1:]
 
-            with open(f) as fh:
+    matrix.flush()
 
-                for line in fh:
+    with open(output_file, "w", buffering=1024 * 1024) as out:
 
-                    line = line.rstrip()
+        out.write(f"{N}\n")
 
-                    if not line:
-                        continue
+        for i in range(N):
 
-                    out.write(line)
-                    out.write("\n")
+            out.write(sample_ids[i][:40].ljust(40))
 
-                    written += 1
+            row = matrix[i]
 
-                    if written % 1000 == 0:
-                        print(
-                            f"[INFO] Wrote {written:,}/{n_taxa:,}",
-                            flush=True
-                        )
+            out.write(
+                " ".join(f"{x:.6f}" for x in row)
+            )
 
-    print("[DONE]")
+            out.write("\n")
 
+    del matrix
+    os.remove(tmp.name)
+    print(output_file,end="")
 
 if __name__ == "__main__":
     main()
