@@ -408,7 +408,8 @@ workflow checkGenomeDir{
 process CHECK_GENOME_DIR{
 
     cpus 1
-
+    executor = "local"
+    
     input:
     val(genome_dir)
 
