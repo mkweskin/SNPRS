@@ -66,11 +66,15 @@ workflow mapReads{
     ? Channel.from(bbmap_dir)
     : BBMAP_INDEX(reference_fasta) | collect | map{it->it[0].toString()}
        
-    bam_data = mapping_data
+    pre_bam_data = mapping_data
     .map{it->tuple(it[0],it[1],it[2])}
     .combine(bbmap_ref)
-    | MAP_READS 
-    | splitCsv
+    
+    if(params.pe){
+        bam_data = pre_bam_data | PE_MAP_READS | splitCsv
+    } else{
+        bam_data = pre_bam_data | MAP_READS | splitCsv
+    }
 }
 
 
@@ -159,6 +163,57 @@ samtools sort -@ ${sample_cpu} -o ${bam_file} - && samtools index -@ ${sample_cp
     """
 }
 
+process PE_MAP_READS{
+
+    tag "Map_${sample_id}"
+
+    cpus sample_cpu
+
+    input:
+    tuple val(sample_id),val(forward_read),val(reverse_read),val(bbmap_ref)
+
+    output:
+    stdout
+
+    script:
+
+    bam_file = file("${bam_dir}/${sample_id}.bam")
+    raw_sam_file = file("${bam_dir}/${sample_id}_raw.sam")
+
+    def slow_arg
+    if(params.vslow){
+        slow_arg = "vslow=t"
+    } else if(params.slow){
+        slow_arg = "slow=t"
+    } else{
+        slow_arg = ""
+    }
+
+    delete_cmd = (params.overwrite)
+    ? "rm -f $bam_file $raw_sam_file" 
+    : """
+if [ -e "$bam_file" ] || [ -e "$raw_sam_file" ] ; then
+    echo "❌ Error: BAM files or intermediates already exist! Use --overwrite to replace." >&2
+    exit 1
+fi"""    
+
+
+    mapping_cmd ="""
+TOTAL_MEM_MB=\$(free -m | awk '/^Mem:/{print \$2}')
+XMX_MB=\$((TOTAL_MEM_MB * 70 / 100))
+XMX_ARG="-Xmx\${XMX_MB}m"
+bbmap.sh $slow_arg threads=${sample_cpu} in=${forward_read} in2=${reverse_read} ambiguous=toss pairedonly=t mappedonly=t maxindel=99 strictmaxindel=t out=${raw_sam_file} \$XMX_ARG &&
+samtools view -Su -@ ${sample_cpu} -F 4 ${raw_sam_file} | \
+samtools sort -@ ${sample_cpu} - -o ${bam_file} && samtools index -@ ${sample_cpu} ${bam_file} && rm -f ${raw_sam_file}""" 
+
+    """
+    cd $mapping_directory &&
+    mkdir -p $bam_dir &&
+    $delete_cmd &&
+    $mapping_cmd &&
+    echo -n "${sample_id},${bam_file}"
+    """
+}
 
 ///// Fetch existing BAM files /////
 
