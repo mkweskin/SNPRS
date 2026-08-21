@@ -190,7 +190,11 @@ workflow{
     input_scaffold = (params.scaffold) ? Channel.from(file(params.scaffold)) : Channel.empty()
 
     if(params.filter_id){
-        scaffold_file = input_scaffold | filterScaffold
+        if(params.join_id){
+            scaffold_file = generateScaffold(called_bases_data) | filterScaffold
+        } else{
+            scaffold_file = input_scaffold | filterScaffold
+        }
     } else if(params.join_id){
         scaffold_file = generateScaffold(called_bases_data)
     } else{
