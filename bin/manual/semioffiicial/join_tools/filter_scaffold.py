@@ -29,34 +29,24 @@ output_directory = Path(args.scaffold_parquet).parent
 filter_id = args.filter_id
 
 filter_file = os.path.join(output_directory,f"{filter_id}_Filtered.parquet")
+filter_summary = os.path.join(output_directory,f"{filter_id}_Filtered.summary")
+
 if os.path.exists(filter_file):
     sys.exit(f"{filter_file} exists...")
 
 lf = pl.scan_parquet(args.scaffold_parquet)
 
-sample_count = 49851
-#sample_count = (
-#    lf
-#    .select((pl.col("cov") + pl.col("uncovered")).alias("total"))
-#    .head(1)
-#   .collect(engine="streaming")
-#   .item()
-#)
+sample_count = (
+    lf
+    .select((pl.col("cov") + pl.col("uncovered")).alias("total"))
+    .head(1)
+   .collect(engine="streaming")
+   .item()
+)
 
 filter_expr = pl.lit(True)
 
 base_cols = ["a", "c", "t", "g", "gap"]
-
-if args.no_het:
-    filter_expr &= pl.col("het") == 0
-    
-if args.no_gap:
-    filter_expr &= pl.col("gap") == 0
-
-if args.no_sing:
-    filter_expr &= ~pl.any_horizontal(
-        [pl.col(col) == 1 for col in base_cols]
-    )
 
 try:
     allele_list = [int(x.strip()) for x in args.allele_list.split(",")]
@@ -67,14 +57,11 @@ invalid = set(allele_list) - {1, 2, 3, 4, 5}
 if invalid:
     sys.exit("--alleles values must be 1, 2, 3, 4, or 5")
 
-filter_expr &= pl.col("pi_alleles").is_in(allele_list)
-
 if args.min_covered is not None:
     if 0 < args.min_covered < 1:
         cov_threshold = math.floor(sample_count * args.min_covered)
     else:
         cov_threshold = int(args.min_covered)
-    filter_expr &= pl.col("cov") >= cov_threshold
 
 if args.min_fixed is not None:
     if 0 < args.min_fixed < 1:
@@ -82,15 +69,11 @@ if args.min_fixed is not None:
     else:
         fixed_threshold = int(args.min_fixed)
 
-    filter_expr &= pl.col("fixed") >= fixed_threshold
-
 if args.min_het is not None:
     if 0 < args.min_het < 1:
         het_threshold = math.floor(sample_count * args.min_het)
     else:
         het_threshold = int(args.min_het)
-
-    filter_expr &= pl.col("het") >= het_threshold
 
 if args.max_ploidy is not None:
     if 0 < args.max_ploidy < 1:
@@ -98,7 +81,47 @@ if args.max_ploidy is not None:
     else:
         ploidy_threshold = int(args.max_ploidy)
 
-    filter_expr &= pl.col("pf") < ploidy_threshold
+if args.min_clade is not None:
+    max2 = (
+        pl.concat_list(base_cols)
+        .list.sort(descending=True)
+        .list.get(1)
+    )
+    
+filters = []
+
+if args.no_het:
+    filters.append(("No heterozygous calls", pl.col("het") == 0))
+
+if args.no_gap:
+    filters.append(("No gaps", pl.col("gap") == 0))
+
+if args.no_sing:
+    filters.append((
+        "No singleton alleles",
+        ~pl.any_horizontal([pl.col(col) == 1 for col in base_cols])
+    ))
+
+filters.append((
+    f"Alleles in {','.join(map(str, allele_list))}",
+    pl.col("pi_alleles").is_in(allele_list)
+))
+
+if args.min_covered is not None:
+    filters.append((f"Coverage >= {cov_threshold}",
+                    pl.col("cov") >= cov_threshold))
+
+if args.min_fixed is not None:
+    filters.append((f"Fixed >= {fixed_threshold}",
+                    pl.col("fixed") >= fixed_threshold))
+
+if args.min_het is not None:
+    filters.append((f"Het >= {het_threshold}",
+                    pl.col("het") >= het_threshold))
+
+if args.max_ploidy is not None:
+    filters.append((f"Ploidy failures < {ploidy_threshold}",
+                    pl.col("pf") < ploidy_threshold))
 
 if args.min_clade is not None:
     max2 = (
@@ -106,15 +129,53 @@ if args.min_clade is not None:
         .list.sort(descending=True)
         .list.get(1)
     )
-    filter_expr &= max2 >= args.min_clade
+    filters.append((f"Second allele >= {args.min_clade}",
+                    max2 >= args.min_clade))
+summary = []
+
+current = lf
+
+start_count = (
+    current
+    .select(pl.len())
+    .collect(engine="streaming")
+    .item()
+)
+
+summary.append(("Starting rows", start_count))
+
+for desc, expr in filters:
+    current = current.filter(expr)
+
+    count = (
+        current
+        .select(pl.len())
+        .collect(engine="streaming")
+        .item()
+    )
+
+    summary.append((desc, count))
 
 (
-    lf.filter(filter_expr)
-      .sort(["contig_index", "contig_position"])
-      .sink_parquet(
-          filter_file,
-          compression="snappy",
-      )
+    current
+    .sort(["contig_index", "contig_position"])
+    .sink_parquet(
+        filter_file,
+        compression="snappy",
+    )
 )
+
+with open(filter_summary, "w") as out:
+    out.write(f"Input file : {args.scaffold_parquet}\n")
+    out.write(f"Output file: {filter_file}\n\n")
+
+    out.write(f"{'Step':40s} {'Remaining':>12s} {'Removed':>12s}\n")
+    out.write("-" * 68 + "\n")
+
+    prev = summary[0][1]
+    for name, count in summary:
+        removed = prev - count if name != "Starting rows" else 0
+        out.write(f"{name:40s} {count:12,d} {removed:12,d}\n")
+        prev = count
 
 print(filter_file)
