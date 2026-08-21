@@ -76,7 +76,7 @@ base_int,int_base = make_base_int_map()
 
 # Scan bases
 raw_base_df = (
-    pl.read_parquet(sample_parquet).lazy()
+    pl.scan_parquet(sample_parquet)
     .with_columns(
         pl.when(pl.col("depth") < read_cov)
             .then(pl.lit("Fail_Depth"))
