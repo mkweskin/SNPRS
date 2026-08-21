@@ -167,6 +167,7 @@ process FILTER_SCAFFOLD{
     
     filter_script = file("${projectDir}/bin/manual/semioffiicial/join_tools/filter_scaffold.py")
 
+    scaf_file = file("${scaffold_file}")
     cov_arg = (params.min_cov) ? " --covered ${params.min_cov}" : ""
     fixed_arg = (params.min_fix) ? " --fixed ${params.min_fix}" : ""
     het_arg = (params.min_het) ? " --het ${params.min_het}" : ""
@@ -178,7 +179,7 @@ process FILTER_SCAFFOLD{
     no_het_arg = (params.no_het) ? " --no_het": ""
 
     """
-    python $filter_script --in $scaffold_file --filter_id $filter_id $cov_arg $fixed_arg $het_arg $ploidy_arg $clade_arg $allele_arg $no_gap_arg $no_sing_arg $no_het_arg
+    python $filter_script --in $scaf_file --filter_id $filter_id $cov_arg $fixed_arg $het_arg $ploidy_arg $clade_arg $allele_arg $no_gap_arg $no_sing_arg $no_het_arg
     """
 }
 
