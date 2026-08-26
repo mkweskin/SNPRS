@@ -170,8 +170,8 @@ process CALCULATE_SUBSETS{
 
     script:
 
-    //calculate_sub_script = file("${projectDir}/bin/calculateSubset.py")
-    calculate_sub_script = file("/flash/storage/scratch/Robert.Literman/NextFlow/SNPRS/bin/manual/calculateSubset.py")
+    calculate_sub_script = file("${projectDir}/bin/calculateSubset.py")
+    //calculate_sub_script = file("/flash/storage/scratch/Robert.Literman/NextFlow/SNPRS/bin/manual/calculateSubset.py")
     genome_prep_directory = file("${genome_dir}/Prep_${genome_name}")
     subset_directory = file("${genome_prep_directory}/Subset_Reads")
     group_file = file("${genome_prep_directory}/Read_Groups.csv")

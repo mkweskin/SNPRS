@@ -220,7 +220,7 @@ workflow getDistance{
 process CREATE_MATRIX{
 
     cpus 1
-    executor "slurm"
+    // executor "slurm"
     memory  "1G"
 
     input:
@@ -265,7 +265,7 @@ process CHUNK_DATA{
 
 process POPULATE_MATRIX{
 
-    executor "slurm"
+    // executor "slurm"
     cpus 1
     memory "1G"
 
@@ -285,7 +285,7 @@ process POPULATE_MATRIX{
 
 process CHUNK_DIST{
 
-    executor "slurm"
+    // executor "slurm"
     cpus cpu
 
     input:
@@ -308,7 +308,7 @@ process CHUNK_DIST{
 
 process CREATE_PHY{
 
-    executor "slurm"
+    // executor "slurm"
     cpus 1
 
     input:
@@ -328,7 +328,7 @@ process CREATE_PHY{
 
 process RUN_RAPIDNJ{
 
-    executor "slurm"
+    // executor "slurm"
     cpus cpu
 
     input:
@@ -342,6 +342,6 @@ process RUN_RAPIDNJ{
     newick_file = "${file(phylip_file).getParent()}/${dist_id}.nwk"
     """
     mkdir -p MEM
-    rapidnj -i pd -d ./MEM -c 48 -n -x $newick_file $phylip_file
+    rapidnj -i pd -d ./MEM -c ${task.cpus} -n -x $newick_file $phylip_file
     """
 }

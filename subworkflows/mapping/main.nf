@@ -91,8 +91,8 @@ process BBMAP_INDEX{
     script:
   
     """
-    TOTAL_MEM_MB=\$(free -m | awk '/^Mem:/{print \$2}')
-    XMX_MB=\$((TOTAL_MEM_MB * 70 / 100))
+    #TOTAL_MEM_MB=\$(free -m | awk '/^Mem:/{print \$2}')
+    XMX_MB=\$(( ${task.memory.toMega()} * 70 / 100 ))
     XMX_ARG="-Xmx\${XMX_MB}m"
 
     mkdir -p $mapping_directory &&
@@ -140,16 +140,16 @@ fi"""
 
     mapping_cmd = (reverse_read) ?
     """
-TOTAL_MEM_MB=\$(free -m | awk '/^Mem:/{print \$2}')
-XMX_MB=\$((TOTAL_MEM_MB * 70 / 100))
+#TOTAL_MEM_MB=\$(free -m | awk '/^Mem:/{print \$2}')
+XMX_MB=\$(( ${task.memory.toMega()} * 70 / 100 ))
 XMX_ARG="-Xmx\${XMX_MB}m"
 bbwrap.sh $slow_arg threads=${sample_cpu} in=${forward_read},${reverse_read} ambiguous=toss mappedonly=t maxindel=99 strictmaxindel=t append=t out=${raw_sam_file} \$XMX_ARG &&
 samtools view -Su -@ ${sample_cpu} -F 4 ${raw_sam_file} | \
 samtools sort -@ ${sample_cpu} - -o ${bam_file} && samtools index -@ ${sample_cpu} ${bam_file} && rm -f ${raw_sam_file}""" 
 :
     """
-TOTAL_MEM_MB=\$(free -m | awk '/^Mem:/{print \$2}')
-XMX_MB=\$((TOTAL_MEM_MB * 70 / 100))
+#TOTAL_MEM_MB=\$(free -m | awk '/^Mem:/{print \$2}')
+XMX_MB=\$(( ${task.memory.toMega()} * 70 / 100 ))
 XMX_ARG="-Xmx\${XMX_MB}m"
 bbmap.sh $slow_arg threads=${sample_cpu} in=${forward_read} ambiguous=toss mappedonly=t maxindel=99 strictmaxindel=t out=stdout.bam \$XMX_ARG | \
 samtools sort -@ ${sample_cpu} -o ${bam_file} - && samtools index -@ ${sample_cpu} ${bam_file}"""
@@ -199,8 +199,8 @@ fi"""
 
 
     mapping_cmd ="""
-TOTAL_MEM_MB=\$(free -m | awk '/^Mem:/{print \$2}')
-XMX_MB=\$((TOTAL_MEM_MB * 70 / 100))
+#TOTAL_MEM_MB=\$(free -m | awk '/^Mem:/{print \$2}')
+XMX_MB=\$(( ${task.memory.toMega()} * 70 / 100 ))
 XMX_ARG="-Xmx\${XMX_MB}m"
 bbmap.sh $slow_arg threads=${sample_cpu} in=${forward_read} in2=${reverse_read} ambiguous=toss pairedonly=t mappedonly=t maxindel=99 strictmaxindel=t out=${raw_sam_file} \$XMX_ARG &&
 samtools view -Su -@ ${sample_cpu} -F 4 ${raw_sam_file} | \

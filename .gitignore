@@ -6,4 +6,8 @@ SNPRS_Env
 bin/250915
 modules/OLD
 subworkflows/OLD
-conf/profiles.config
+jobs
+logs
+primates
+*fuchia*
+samples

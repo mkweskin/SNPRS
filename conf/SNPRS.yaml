@@ -31,7 +31,7 @@ dependencies:
   - bedtools
   - pybedtools
   - bowtie2
-  - samtools
+  - samtools=1.19.2
   - kraken2
   - augustus
   - bbmap
@@ -47,6 +47,7 @@ dependencies:
   - dendropy
   - ete3
   - toytree
+  - rapidnj
 
 
 
