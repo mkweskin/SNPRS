@@ -104,6 +104,8 @@ def main():
 
     del matrix
     os.remove(tmp.name)
+    for file in files:
+        os.remove(file)
     print(output_file,end="")
 
 if __name__ == "__main__":

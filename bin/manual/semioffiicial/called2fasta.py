@@ -12,18 +12,61 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Score chunk of scaffold")    
     parser.add_argument("--called", dest="called_parquet", type=str, required=True,help="Path to called base parquet")
     parser.add_argument("--scaffold", dest="scaffold_parquet", type=str, required=True,help="Path to scaffold base parquet")
+    parser.add_argument("--bed", dest="bed_file", type=str,help="4 column tsv with locus information")
     return parser.parse_args()
 
 
 def code_to_base(x):
-    base_convert_dict = { 1: "A", 2: "C", 3: "G", 4: "T" }
+    base_convert_dict = {
+        1:  "A",
+        2:  "C",
+        3:  "G",
+        4:  "T",
+        5:  "M",
+        6:  "R",
+        7:  "W",
+        8:  "S",
+        9:  "Y",
+        10: "K",
+        11: "V",
+        12: "H",
+        13: "D",
+        14: "B",
+        15: "N",
+        16: "-",
+        17: "a",
+        18: "c",
+        19: "g",
+        20: "t",
+        21: "m",
+        22: "r",
+        23: "w",
+        24: "s",
+        25: "y",
+        26: "k",
+        27: "v",
+        28: "h",
+        29: "d",
+        30: "b",
+        31: "n",
+    }
     return base_convert_dict.get(x, "N")
+
+def wrap80(seq):
+    return "\n".join(seq[i:i+80] for i in range(0, len(seq), 80))
+
 
 args = parse_args()
 
 site_info = pl.scan_parquet(args.scaffold_parquet).select(['contig_index','contig_position'])
 called_info = pl.scan_parquet(args.called_parquet).select(['contig_index','contig_position','base_code'])
 
+sample_name = os.path.basename(args.called_parquet)
+if sample_name.endswith("_Called.parquet"):
+    sample_name = sample_name.replace("_Called.parquet", "")
+else:
+    sample_name = sample_name.replace(".parquet", "")
+    
 joined = (
     site_info
     .join(called_info, on=["contig_index", "contig_position"], how="left")
@@ -33,22 +76,49 @@ joined = (
     .sort(['contig_index','contig_position'])
 ).collect(engine="streaming")
 
-bases = [code_to_base(x) for x in joined["base_code"]]
+if args.bed_file:
+    
+    bed_df = pl.read_csv(
+        args.bed_file,
+        separator="\t",
+        has_header=True,
+        new_columns=["contig_index", "start", "stop", "name"]
+    )
 
-sequence = "".join(bases)
 
-sample_name = os.path.basename(args.called_parquet)
-if sample_name.endswith("_Called.parquet"):
-    sample_name = sample_name.replace("_Called.parquet", "")
+    for locus in bed_df.iter_rows(named=True):
+
+        locus_index = locus["contig_index"]
+        locus_start = locus["start"]
+        locus_stop = locus["stop"]
+        locus_id = locus["name"]
+        
+        if locus_id:
+            locus_df = joined.filter(
+                (pl.col("contig_index") == locus_index)
+                & (pl.col("contig_position") >= locus_start)
+                & (pl.col("contig_position") <= locus_stop)
+            ).sort("contig_position")
+
+            bases = [code_to_base(x) for x in locus_df["base_code"]]
+            sequence = "".join(bases)
+
+            out_path = f"{locus_id}_{sample_name}.fasta"
+
+            with open(out_path, "w", newline="\n") as f:
+                f.write(f">{sample_name}\n")
+                f.write(wrap80(sequence))
+                f.write("\n")
+
 else:
-    sample_name = sample_name.replace(".parquet", "")
+    
+    bases = [code_to_base(x) for x in joined["base_code"]]
 
-def wrap80(seq):
-    return "\n".join(seq[i:i+80] for i in range(0, len(seq), 80))
+    sequence = "".join(bases)
 
-out_path = f"{sample_name}.fasta"
+    out_path = f"{sample_name}.fasta"
 
-with open(out_path, "w", newline="\n") as f:
-    f.write(f">{sample_name}\n")
-    f.write(wrap80(sequence))
-    f.write("\n")
+    with open(out_path, "w", newline="\n") as f:
+        f.write(f">{sample_name}\n")
+        f.write(wrap80(sequence))
+        f.write("\n")
