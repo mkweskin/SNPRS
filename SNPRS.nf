@@ -202,7 +202,7 @@ workflow{
     }
 
     if(params.dist_id){
-        distance_phylip = getDistance(called_bases_data,scaffold_file)
+        getDistance(called_bases_data,scaffold_file)
     }
 
 }

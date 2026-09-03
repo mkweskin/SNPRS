@@ -10,9 +10,10 @@ import argparse
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Score chunk of scaffold")    
-    parser.add_argument("--called", dest="called_parquet", type=str, required=True,help="Path to called base parquet")
-    parser.add_argument("--scaffold", dest="scaffold_parquet", type=str, required=True,help="Path to scaffold base parquet")
-    parser.add_argument("--bed", dest="bed_file", type=str,help="4 column tsv with locus information")
+    parser.add_argument("--called", dest="called_parquet", type=str, required=True, help="Path to called base parquet")
+    parser.add_argument("--scaffold", dest="scaffold_parquet", type=str, required=True, help="Path to scaffold base parquet")
+    parser.add_argument("--out", dest="out_dir", type=str, help="Path to scaffold base parquet")
+    parser.add_argument("--bed", dest="bed_file", type=str, help="4 column tsv with locus information")
     return parser.parse_args()
 
 
@@ -32,23 +33,6 @@ def code_to_base(x):
         12: "H",
         13: "D",
         14: "B",
-        15: "N",
-        16: "-",
-        17: "a",
-        18: "c",
-        19: "g",
-        20: "t",
-        21: "m",
-        22: "r",
-        23: "w",
-        24: "s",
-        25: "y",
-        26: "k",
-        27: "v",
-        28: "h",
-        29: "d",
-        30: "b",
-        31: "n",
     }
     return base_convert_dict.get(x, "N")
 
@@ -67,6 +51,14 @@ if sample_name.endswith("_Called.parquet"):
 else:
     sample_name = sample_name.replace(".parquet", "")
     
+if args.out_dir:
+    output_directory = os.path.abspath(args.out_dir)
+else:
+    output_directory = f"{os.path.dirname(os.path.abspath(args.scaffold_parquet))}/FASTA"
+    
+if not os.path.exists(output_directory):
+    os.mkdir(output_directory)
+
 joined = (
     site_info
     .join(called_info, on=["contig_index", "contig_position"], how="left")
@@ -85,7 +77,6 @@ if args.bed_file:
         new_columns=["contig_index", "start", "stop", "name"]
     )
 
-
     for locus in bed_df.iter_rows(named=True):
 
         locus_index = locus["contig_index"]
@@ -103,7 +94,7 @@ if args.bed_file:
             bases = [code_to_base(x) for x in locus_df["base_code"]]
             sequence = "".join(bases)
 
-            out_path = f"{locus_id}_{sample_name}.fasta"
+            out_path = f"{output_directory}/{locus_id}_{sample_name}.fasta"
 
             with open(out_path, "w", newline="\n") as f:
                 f.write(f">{sample_name}\n")
@@ -113,12 +104,12 @@ if args.bed_file:
 else:
     
     bases = [code_to_base(x) for x in joined["base_code"]]
-
     sequence = "".join(bases)
 
-    out_path = f"{sample_name}.fasta"
+    out_path = f"{output_directory}/{sample_name}.FASTA"
 
     with open(out_path, "w", newline="\n") as f:
         f.write(f">{sample_name}\n")
         f.write(wrap80(sequence))
         f.write("\n")
+    
