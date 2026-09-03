@@ -18,6 +18,11 @@ def filter_id = (params.filter_id) ? "${params.filter_id}" : ""
 // Distances
 def dist_id = (params.dist_id) ? "${params.dist_id}" : ""
 
+// FASTA alignment
+def align_id = (params.align_id) ? "${params.align_id}" : ""
+def bootstrap = params.bs as Integer
+
+
 workflow generateScaffold{
     
     take:
@@ -188,9 +193,10 @@ workflow getDistance{
     take:
     called_bases_data
     scaffold_file
-
+    
     emit:
-    final_phylip
+    distance_tree
+    vft_file
     
     main:
 
@@ -214,8 +220,126 @@ workflow getDistance{
 
     final_phylip = blank_data.combine(chunked_dist).combine(chunk_file) | CREATE_PHY
 
-    final_tree = RUN_RAPIDNJ(final_phylip)
+    distance_tree = RUN_RAPIDNJ(final_phylip)
+    
+    if(params.align_id){
+        
+        fasta_dir = CREATE_FASTA_DIR(scaffold_file,align_id) | collect | flatten | collate(1)
+        alignment_info = called_bases_data.combine(fasta_dir).combine(scaffold_file)| CALLED_TO_FASTA | splitCsv | collect | flatten | collate(2) | last()
+        alignment_file = CONCATENATE_FASTAS(alignment_info) | collect | flatten | collate(1)
+
+        vft_file = alignment_file.combine(scaffold_file).combine(distance_tree) | RUN_VERYFASTTREE
+
+    } else {
+        vft_file = Channel.empty()
+    }
 }
+
+process RUN_VERYFASTTREE{
+
+    cpus cpu
+    
+    input:
+    tuple val(alignment_file),val(scaffold_file),val(distance_tree)
+
+    output:
+    stdout
+
+    script:
+
+    def boot_arg = (params.bs) ? "-boot ${bootstrap}" : ""
+    def scaffold_dir = file("${scaffold_file}").getParent()
+    def temp_tree = file("${scaffold_dir}/${align_id}_temp.nwk")
+    def output_tree = file("${scaffold_dir}/${align_id}_VFT.nwk")
+
+    def dist_tree = file("${distance_tree}")
+    def align_file = file("${alignment_file}")
+    
+    """
+    sed "s/'//g" $distance_tree > $temp_tree &&
+    VeryFastTree -nt -threads $cpu -fastest -gtr -intree $temp_tree $boot_arg $align_file > $output_tree && 
+    rm -rf $temp_tree &&
+    echo -n $output_tree
+    """
+}
+process CREATE_FASTA_DIR{
+
+    cpus 1
+    executor "local"
+
+    input:
+    val(scaffold_file)
+    val(align_id)
+
+    output:
+    stdout
+
+    script:
+    
+    def scaffold_dir = file("${scaffold_file}").getParent()
+    def fasta_dir = file("${scaffold_dir}/${align_id}")
+
+    if (fasta_dir.exists()) {
+        error("Directory ${fasta_dir} already exists")
+    }
+
+    """
+    mkdir -p $fasta_dir &&
+    echo -n $fasta_dir
+    """
+}
+
+process CALLED_TO_FASTA{
+
+    cpus 1
+
+    input:
+    tuple val(sample_id),val(called_base_file),val(fasta_dir),val(scaffold_file)
+
+    output:
+    stdout
+
+    script:
+    
+    def convert_script = file("${projectDir}/bin/manual/semioffiicial/called2fasta.py")
+    def scaffold_dir = file("${scaffold_file}").getParent()
+    def alignment_file = file("${scaffold_dir}/${align_id}.fasta")
+
+    """
+    python $convert_script --called $called_base_file --scaffold $scaffold_file --out $fasta_dir && 
+    echo -n "${fasta_dir},${alignment_file}"
+    """
+}
+
+process CONCATENATE_FASTAS {
+
+    cpus 1
+    executor "local"
+
+    input:
+    tuple val(fasta_dir),val(alignment_file)
+
+    output:
+    stdout
+
+    script:
+    """
+    if [ ! -d "${fasta_dir}" ]; then
+        echo "Error: Directory ${fasta_dir} not found" >&2
+        exit 1
+    fi
+    
+    find ${fasta_dir} -name "*FASTA" -print0 | xargs -0 cat > ${alignment_file}
+    
+    if [ ! -s "${alignment_file}" ]; then
+        echo "Error: No FASTA files found in ${fasta_dir}" >&2
+        exit 1
+    fi
+
+    rm -rf $fasta_dir && echo -n $alignment_file
+    """
+}
+
 
 process CREATE_MATRIX{
 
@@ -342,6 +466,6 @@ process RUN_RAPIDNJ{
     newick_file = "${file(phylip_file).getParent()}/${dist_id}.nwk"
     """
     mkdir -p MEM
-    rapidnj -i pd -d ./MEM -c 48 -n -x $newick_file $phylip_file
+    rapidnj -i pd -d ./MEM -c 48 -n -x $newick_file $phylip_file && echo -n $newick_file
     """
 }
